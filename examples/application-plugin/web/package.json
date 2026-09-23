@@ -1,0 +1,16 @@
+{
+  "name": "gordis-application-plugin-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && node --test tests/*.test.mjs"
+  },
+  "dependencies": { "react": "19.2.6", "react-dom": "19.2.6" },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "esbuild": "0.25.12"
+  }
+}

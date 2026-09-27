@@ -1,5 +1,7 @@
 # Gordis examples
 
+English | [中文](README.zh.md)
+
 Each example focuses on one part of the plugin runtime. Start with `basic`,
 then follow the sections below as the corresponding concepts become relevant.
 The linked README in each directory contains run instructions, expected output,

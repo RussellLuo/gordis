@@ -1,5 +1,7 @@
 # Typed event publication
 
+English | [中文](README.zh.md)
+
 This example mounts the optional EventBus and publishes a typed order event to
 one subscriber.
 

@@ -1,5 +1,7 @@
 # Typed services and configuration
 
+English | [中文](README.zh.md)
+
 This example extends the README greeter into two plugin types. One `greeter`
 instance provides a typed `Greeter` service; two `greeting` instances consume
 it with different JSON configurations.

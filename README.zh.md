@@ -42,13 +42,9 @@ func main() {
 	}
 	defer host.Shutdown(context.Background())
 
-	instance, err := host.Env().MountReady(ctx, gordis.InstanceSpec{
+	if _, err := host.Env().MountReady(ctx, gordis.InstanceSpec{
 		ID: "greeter", Plugin: "greeter",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	if err = instance.Unmount(ctx); err != nil {
+	}); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -61,7 +57,7 @@ greeter: Hello, Gordis!
 ```
 
 `NewHost` 固定静态链接的 Plugin 类型目录；`Env.MountReady` 挂载一个 root 实例并等待
-该次精确 desired revision。返回的 `Instance` 可继续更新、重启、等待或卸载。
+该次精确 desired revision。`Host.Shutdown` 在程序退出时统一清理已挂载的实例。
 
 ## 核心模型
 
@@ -97,8 +93,8 @@ Ready。核心不读取配置文件或维护另一棵 Loader runtime graph。
 
 ## 示例
 
-从 [basic](examples/basic/README.md) 开始了解类型化 Service、配置和实例挂载。完整的事件、
-隔离、所有权、就绪、动态变更、进程插件与应用集成示例见[示例指南](examples/README.md)。
+从 [basic](examples/basic/README.zh.md) 开始了解类型化 Service、配置和实例挂载。完整的事件、
+隔离、所有权、就绪、动态变更、进程插件与应用集成示例见[示例指南](examples/README.zh.md)。
 
 ## 文档
 

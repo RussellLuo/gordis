@@ -1,5 +1,7 @@
 # Events from a process plugin
 
+English | [中文](README.zh.md)
+
 This example mounts an independently built process plugin that publishes a
 typed Topic into the Host EventBus. A Local plugin receives the event through
 the same `events.Bind(scope).On` API used for Local publishers.

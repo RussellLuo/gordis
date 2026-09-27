@@ -44,13 +44,9 @@ func main() {
 	}
 	defer host.Shutdown(context.Background())
 
-	instance, err := host.Env().MountReady(ctx, gordis.InstanceSpec{
+	if _, err := host.Env().MountReady(ctx, gordis.InstanceSpec{
 		ID: "greeter", Plugin: "greeter",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	if err = instance.Unmount(ctx); err != nil {
+	}); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -63,8 +59,8 @@ greeter: Hello, Gordis!
 ```
 
 `NewHost` fixes the compiled Plugin type catalog. `Env.MountReady` adds one
-root instance and waits for its exact desired revision; the returned `Instance`
-can later be updated, restarted, awaited, or unmounted.
+root instance and waits for its exact desired revision. `Host.Shutdown` cleans
+up mounted instances when the program exits.
 
 ## Core model
 

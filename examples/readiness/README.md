@@ -1,5 +1,7 @@
 # Ownership and readiness
 
+English | [中文](README.zh.md)
+
 This example separates lifecycle ownership from Service readiness:
 
 - `collector.Env().Mount` makes `metrics` a child, so it is reclaimed with that

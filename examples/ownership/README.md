@@ -1,5 +1,7 @@
 # Nested lifecycle ownership
 
+English | [中文](README.zh.md)
+
 This example mounts a child from an owner activation and then restarts the
 owner.
 

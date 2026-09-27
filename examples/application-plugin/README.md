@@ -1,5 +1,7 @@
 # Application plugin
 
+English | [中文](README.zh.md)
+
 This example delivers a versioned application plugin after the Host has
 started. The `sampler` bundle contains a backend executable and browser UI. It
 declares Alpha and Beta as separate processes that share one plugin page.

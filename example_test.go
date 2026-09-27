@@ -28,13 +28,9 @@ func ExampleNewHost() {
 	}
 	defer host.Shutdown(context.Background())
 
-	instance, err := host.Env().MountReady(context.Background(), gordis.InstanceSpec{
+	if _, err := host.Env().MountReady(context.Background(), gordis.InstanceSpec{
 		ID: "greeter", Plugin: "greeter",
-	})
-	if err != nil {
-		panic(err)
-	}
-	if err := instance.Unmount(context.Background()); err != nil {
+	}); err != nil {
 		panic(err)
 	}
 

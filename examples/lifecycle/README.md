@@ -1,5 +1,7 @@
 # Lifecycle-owned resources
 
+English | [中文](README.zh.md)
+
 This example gives one Scope a managed background task, a stop callback, an
 in-flight request lease, and final resource cleanup. It shows how shutdown
 closes admission before waiting for active work.

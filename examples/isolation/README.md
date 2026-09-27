@@ -1,5 +1,7 @@
 # Isolated service instances
 
+English | [中文](README.zh.md)
+
 This example connects two consumers to different providers of the same typed
 service.
 

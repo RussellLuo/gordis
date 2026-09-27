@@ -1,5 +1,7 @@
 # Process plugin
 
+English | [中文](README.zh.md)
+
 This example starts an empty Host, mounts an independently built Greeter
 plugin, calls its typed service, and reaps the child process during shutdown.
 

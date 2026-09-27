@@ -1,5 +1,7 @@
 # Bidirectional process calls
 
+English | [中文](README.zh.md)
+
 This example demonstrates one nested call over a single stdio session. The
 Host calls the plugin's `add(2)` method. While handling that request, the plugin
 calls the Host's `base()` method, receives `40`, and returns `42`.

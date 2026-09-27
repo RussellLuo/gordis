@@ -1,5 +1,7 @@
 # Dynamic instance management
 
+English | [中文](README.zh.md)
+
 This example changes one running Host through a `ChangeSet`. It removes the
 provider of a ready consumer, observes the consumer return to `pending`, and
 uses `Operation.Restore` to bring both back with new generations.

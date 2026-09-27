@@ -110,7 +110,7 @@ and waterfall dispatch.
 
 Start with [basic](examples/basic/README.md) for typed services, configuration,
 and instance mounting. See the [examples guide](examples/README.md) for
-isolation, ownership, readiness, dynamic changes, process plugins, and
+events, isolation, ownership, readiness, dynamic changes, process plugins, and
 application integration.
 
 ## Documentation

@@ -10,6 +10,7 @@ and an explanation of the implementation.
 | Example | Focus |
 | --- | --- |
 | [basic](basic/README.md) | Typed services, JSON configuration, and multiple instances |
+| [events](events/README.md) | Typed Topic subscription and publication |
 | [isolation](isolation/README.md) | View isolation and multiple providers |
 | [ownership](ownership/README.md) | Nested Mount, generation ownership, and recursive cleanup |
 | [readiness](readiness/README.md) | Ownership separated from Service readiness |
@@ -21,6 +22,7 @@ and an explanation of the implementation.
 | Example | Focus |
 | --- | --- |
 | [process](process/README.md) | A typed Service implemented by an external process |
+| [process events](process-events/README.md) | A typed Topic published by an external process |
 | [duplex](duplex/README.md) | The lower-level bidirectional process protocol |
 
 ## Application integration

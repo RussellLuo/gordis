@@ -97,8 +97,8 @@ Ready。核心不读取配置文件或维护另一棵 Loader runtime graph。
 
 ## 示例
 
-从 [basic](examples/basic/README.md) 开始了解类型化 Service、配置和实例挂载。完整的隔离、
-所有权、就绪、动态变更、进程插件与应用集成示例见[示例指南](examples/README.md)。
+从 [basic](examples/basic/README.md) 开始了解类型化 Service、配置和实例挂载。完整的事件、
+隔离、所有权、就绪、动态变更、进程插件与应用集成示例见[示例指南](examples/README.md)。
 
 ## 文档
 

@@ -4,25 +4,28 @@ English | [中文](lifecycle.zh.md)
 
 Every instance activation creates a new runtime Plugin object, generation, and Scope. The Scope owns the service bindings, tasks, request leases, and cleanup operations for that generation.
 
-Run `go run ./examples/lifecycle` to observe entrance closure, lease draining, and resource release. See [Core Concepts](concepts.md) for the object model.
+See [Core Concepts](concepts.md) for the object model and
+[Dynamic Instance Management](dynamic.md) for the public mounting API.
 
 ## Startup
 
 ```text
-registered / pending / stopped
+pending / stopped
   → generation + 1
   → New → JSON decode → Spec check → Validate
-  → create Scope → Plugin.Start
+  → create Scope → Plugin.Activate
   → recheck parent and service bindings → publish staged services → ready
 ```
 
-The Host starts parents and providers first. Before `Start` returns, a plugin must complete required handshakes, submit every declared service, and be ready for use. Long-running work belongs in `Scope.Go`.
+The Host activates providers before consumers. Before `Activate` returns, a
+plugin must complete required handshakes, submit every declared service, and be
+ready for use. Long-running work belongs in `Scope.Go`.
 
-Preflight and activation use the same configuration preparation path, but preflight objects are discarded. `New` and `Validate` must not acquire resources; create and register resources only in `Start`.
+Preflight and activation use the same configuration preparation path, but preflight objects are discarded. `New` and `Validate` must not acquire resources; create and register resources only in `Activate`.
 
-On startup failure, the Host cleans up instances started by that operation. The failed instance retains `failed` and its original error, and staged services never become visible. Failure in an optional subtree cleans up that branch and affected consumers while allowing a healthy parent group to remain available, but the startup call still returns the error.
+On activation failure, the Host preserves the original error and then moves the generation through `stopping → stopped`; staged services never become visible. A child failure cleans up that branch and affected Service consumers, but does not change its owner's readiness. `Instance.WaitReady` reports only the target instance's failure; `Operation.WaitReady` does the same for each explicit operation target.
 
-`Ready` describes the instance itself; `GroupReady` also requires every non-optional child to be ready. The startup context bounds startup only. Long-running tasks use `scope.Context()`.
+`Ready` describes only the instance itself. The startup context bounds startup only. Long-running tasks use `scope.Context()`.
 
 ## Shutdown
 
@@ -50,11 +53,11 @@ A raw service reference without a lease is not protected from concurrent shutdow
 
 ## Timeouts and residuals
 
-The Stop context bounds only the caller's wait; it does not cancel background cleanup. While a task, request, or callback remains active, Gordis retains the resource, parent generation, and upstream services. The framework cannot forcibly terminate a Go goroutine.
+An Unmount or Shutdown context bounds only the caller's wait; it does not cancel background cleanup. While a task, request, or callback remains active, Gordis retains the resource, parent generation, and upstream services. The framework cannot forcibly terminate a Go goroutine.
 
 If a cleanup callback returns an error or panics, remaining callbacks still run. `cleanupComplete=true` only means every cleanup step returned; it does not prove that a resource reporting an error was released. An instance with residuals blocks a new generation at the same position to avoid overwriting resources that may still be alive.
 
-Repeated Stop calls wait for the same cleanup operation and do not run callbacks twice. A managed task or cleanup callback must not synchronously wait for its own Stop, which would create a self-wait.
+Callers observing the same cleanup operation do not run callbacks twice. A managed task or cleanup callback must not synchronously wait for its own Unmount or Shutdown, which would create a self-wait.
 
 ## Runtime failure
 
@@ -64,24 +67,25 @@ When a managed task returns a non-cancellation error, or a Plugin/lifecycle call
 2. Cancels startup still in progress.
 3. Cleans up affected instances through the serialized lifecycle executor.
 
-The source retains `failed`, `LastError`, and `FailurePhase`. A dependent instance without its own error becomes `stopped` after cleanup, with a `StopReason` pointing to the source. Healthy consumers with `AllowPending` may return to `pending` and activate with a new generation when the dependency recovers. Unrelated instances keep running.
+The source follows the normal cleanup `Phase` while independently retaining `Failure`, `FailurePhase`, and the final `Outcome=failed`. A dependent instance without its own error returns to `pending` after cleanup, with a `StopReason` pointing to the source, and activates with a new generation when the dependency recovers. Unrelated instances keep running. A cleanup-only error leaves `Failure` empty and produces `Outcome=incomplete`, with details in `CleanupError` and `Residuals`.
 
 Goroutines not started through `Scope.Go` are outside Gordis failure capture and cleanup.
 
 ## Management concurrency and diagnostics
 
-Lifecycle operations are serialized. Conflicting operations return `ErrBusy`; matching Stop requests join the existing cleanup. User callbacks run outside the Host state lock and may read Snapshot, but they must not reenter and wait for a new lifecycle operation.
+Lifecycle operations are serialized. Conflicting operations return `ErrBusy`; Shutdown waits for an accepted operation before draining the Host. User callbacks run outside the Host state lock and may read Snapshot, but they must not reenter and wait for a new lifecycle operation.
 
 Important diagnostic fields:
 
 | Field | Meaning |
 | --- | --- |
-| `State` / `GroupReady` | Availability of the instance and its required subtree |
+| `Phase` | Generation lifecycle position and whether this instance is ready |
 | `Generation` / `ParentGeneration` | Current run and owning parent run |
-| `Bindings` / `ProvidedSlots` | Fixed input providers and output slots |
-| `BlockedBy` / `BlockedSlots` | Missing dependencies or resources still in use |
+| `Bindings` / `ProvidedLabels` | Fixed input providers and provided service labels |
+| `BlockedBy` / `BlockedLabels` | Missing dependencies or resources still in use |
 | `Tasks` / `Leases` | Work and admitted requests still active |
-| `CleanupPhase` / `CleanupComplete` / `Residuals` | Cleanup progress and failures |
-| `LastError` / `FailurePhase` / `StopReason` | Failure source and propagated stop reason |
+| `Failure` / `FailurePhase` / `Outcome` | Original runtime failure, its stage, and the final generation result |
+| `CleanupPhase` / `CleanupComplete` / `CleanupError` / `Residuals` | Cleanup progress, errors, and failed items |
+| `StopReason` | Propagated owner, dependency, or explicit-operation stop cause |
 
 Dynamic changes use the same freeze, drain, and residual rules; see [Dynamic Instance Management](dynamic.md). `processbridge` reuses the same Scope lifecycle and coordinates remote cleanup through `gordis.process/1`.

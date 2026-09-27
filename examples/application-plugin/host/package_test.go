@@ -124,7 +124,7 @@ func TestBrowserAssetsAreSnapshotsAndNeverExposeBackend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer a.host.Stop(context.Background())
+	defer a.host.Shutdown(context.Background())
 	a.bundles[b.digest] = b
 	h, err := a.handler()
 	if err != nil {

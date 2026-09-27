@@ -84,16 +84,7 @@ func (a *app) handler() (http.Handler, error) {
 		case "load":
 			id, err = a.install(ctx, body.PackageID, body.Version)
 		case "uninstall":
-			change := gordis.Change{}
-			for _, s := range a.host.Snapshot() {
-				if strings.HasPrefix(s.ID, body.PackageID+"--") {
-					change.Remove = append(change.Remove, s.ID)
-				}
-			}
-			var plan *gordis.Plan
-			if plan, err = a.host.Preview(change); err == nil {
-				id, err = a.apply(ctx, plan)
-			}
+			id, err = a.uninstall(ctx, body.PackageID)
 		default:
 			failure(w, 404, fmt.Errorf("unknown package action"))
 			return
@@ -113,11 +104,12 @@ func (a *app) handler() (http.Handler, error) {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		var err error
+		var id uint64
 		switch r.PathValue("action") {
 		case "enable":
-			err = a.host.StartInstance(ctx, r.PathValue("id"))
+			id, err = a.setEnabled(ctx, r.PathValue("id"), true)
 		case "disable":
-			err = a.host.StopInstance(ctx, r.PathValue("id"))
+			id, err = a.setEnabled(ctx, r.PathValue("id"), false)
 		default:
 			failure(w, 404, fmt.Errorf("unknown instance action"))
 			return
@@ -126,7 +118,7 @@ func (a *app) handler() (http.Handler, error) {
 			failure(w, 409, err)
 			return
 		}
-		writeJSON(w, 200, map[string]bool{"ok": true})
+		writeJSON(w, 200, map[string]any{"ok": true, "operation": id})
 	})
 	mux.HandleFunc(a.base+"api/extensions/{id}/{rest...}", a.forward)
 	assetRoute := "GET " + a.base + "assets/plugins/{package}/{digest}/{file...}"

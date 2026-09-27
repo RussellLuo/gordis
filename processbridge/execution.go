@@ -3,6 +3,7 @@ package processbridge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 
 	"github.com/RussellLuo/gordis"
@@ -42,7 +43,13 @@ func (r *pluginRun) start(ctx context.Context, spec gordis.PluginSpec, raw json.
 		if err != nil {
 			return err
 		}
-		return p.Start(ctx, r.controller.Scope())
+		scope := &gordis.Scope{Scope: r.controller.Scope()}
+		if a, ok := p.(interface {
+			Activate(context.Context, *gordis.Scope) error
+		}); ok {
+			return a.Activate(ctx, scope)
+		}
+		return errors.New("processbridge: plugin does not implement Activate")
 	})
 	err, _ = r.controller.Commit(ctx, err, nil, func(values map[string]any) { r.values = values })
 	return err

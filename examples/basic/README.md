@@ -25,10 +25,11 @@ bob: Hello, Bob
 `Provides` and publishes a value with `gordis.Provide`; each consumer declares
 it in `Requires` and reads its fixed binding with `gordis.Get`.
 
-Both consumers use the same `greetingPlugin` type. The Host decodes each
-instance's `Config` into a fresh plugin object, calls `Validate`, and starts the
-provider before its consumers.
+`NewHost` registers only the two plugin types. The program then mounts the
+provider, Alice, and Bob directly through the root Env with `MountReady`. The
+Host decodes each instance's `Config` into a fresh plugin object and calls
+`Validate` before `Activate`.
 
-See [main.go](main.go) for the complete program and
-[composition](../composition/README.md) for multiple providers, service slots,
-and lifecycle ownership.
+See [main.go](main.go) for the complete program,
+[isolation](../isolation/README.md) for multiple providers and isolated Envs,
+and [ownership](../ownership/README.md) for child lifecycle ownership.

@@ -4,7 +4,6 @@
 package plugin
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,11 +12,12 @@ import (
 	"github.com/RussellLuo/gordis/internal/lifecycle"
 )
 
-// Plugin is both a registration prototype and a fresh runtime object. Hosts
-// call Start only on objects returned by Spec.New.
+// Plugin is both a registration prototype and a fresh runtime object. The
+// public gordis package owns the lifecycle hook so this package can share the
+// construction/configuration path without depending on the public Scope
+// facade.
 type Plugin interface {
 	Spec() Spec
-	Start(context.Context, *lifecycle.Scope) error
 }
 
 // Spec is immutable plugin-type metadata. New must return a fresh Plugin.
@@ -54,7 +54,7 @@ func Inspect(prototype Plugin) (Spec, error) {
 }
 
 // Prepare creates, decodes and validates one disposable or runtime object.
-// Callers decide whether to discard it after preflight or pass it to Start.
+// Callers decide whether to discard it after preflight or pass it to Activate.
 func Prepare(spec Spec, raw json.RawMessage) (Plugin, error) {
 	var value Plugin
 	if err := lifecycle.Invoke(func() error {

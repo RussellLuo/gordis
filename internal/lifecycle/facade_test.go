@@ -12,9 +12,11 @@ import (
 	"github.com/RussellLuo/gordis/internal/lifecycle"
 )
 
-type startFunc func(context.Context, *gordis.Scope) error
+type activateFunc func(context.Context, *gordis.Scope) error
 
-func (f startFunc) Start(ctx context.Context, scope *gordis.Scope) error { return f(ctx, scope) }
+func (f activateFunc) Activate(ctx context.Context, scope *gordis.Scope) error {
+	return f(ctx, scope)
+}
 
 // This package has no access to root or lifecycle private fields. It exercises
 // the exact type boundary a future framework subpackage will use, without
@@ -25,10 +27,11 @@ func TestCrossPackageScopeAndFixedBindings(t *testing.T) {
 	bindings := map[string]any{"value": &value}
 	requires := []gordis.ServiceSpec{key.Spec()}
 	run := lifecycle.New("external-id", 17, requires, requires, bindings, nil)
+	scope := &gordis.Scope{Scope: run.Scope()}
 	delete(bindings, "value")
 	requires[0] = gordis.NewKey[string]("mutated").Spec()
 	var events []string
-	plugin := startFunc(func(_ context.Context, s *gordis.Scope) error {
+	plugin := activateFunc(func(_ context.Context, s *gordis.Scope) error {
 		if s.ID() != "external-id" || s.Generation() != 17 {
 			t.Fatal("identity changed")
 		}
@@ -68,7 +71,7 @@ func TestCrossPackageScopeAndFixedBindings(t *testing.T) {
 		}
 		return gordis.Provide(s, key, bound)
 	})
-	if err := plugin.Start(context.Background(), run.Scope()); err != nil {
+	if err := plugin.Activate(context.Background(), scope); err != nil {
 		t.Fatal(err)
 	}
 	if err, _ := run.Commit(context.Background(), nil, nil, func(values map[string]any) {
@@ -79,7 +82,7 @@ func TestCrossPackageScopeAndFixedBindings(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := gordis.Provide(run.Scope(), key, &value); err == nil {
+	if err := gordis.Provide(scope, key, &value); err == nil {
 		t.Fatal("published scope accepted service")
 	}
 	release, err := run.Scope().Acquire()
@@ -87,7 +90,7 @@ func TestCrossPackageScopeAndFixedBindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	run.Freeze()
-	if _, err := gordis.Get(run.Scope(), key); !errors.Is(err, gordis.ErrClosed) {
+	if _, err := gordis.Get(scope, key); !errors.Is(err, gordis.ErrClosed) {
 		t.Fatal(err)
 	}
 	if _, err := run.Scope().Acquire(); !errors.Is(err, gordis.ErrClosed) {
@@ -134,9 +137,10 @@ func TestCommitRejectsFailedIncompleteOrRevokedStart(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			failure := make(chan error, 1)
 			run := lifecycle.New("plugin", 8, nil, []gordis.ServiceSpec{key.Spec()}, nil, func(err error) { failure <- err })
+			scope := &gordis.Scope{Scope: run.Scope()}
 			defer func() { run.Freeze(); run.Quiesce(); _ = run.Dispose() }()
 			if mode != "missing" {
-				if err := gordis.Provide(run.Scope(), key, 42); err != nil {
+				if err := gordis.Provide(scope, key, 42); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -187,8 +191,55 @@ func TestFacadeDoesNotExposeLifecycleControls(t *testing.T) {
 	for i := 0; i < typ.NumMethod(); i++ {
 		methods = append(methods, typ.Method(i).Name)
 	}
-	want := []string{"Acquire", "Context", "Defer", "Generation", "Go", "ID", "OnStop"}
+	want := []string{
+		"Acquire", "AcquireReady", "AfterReady", "Context", "Defer", "Env",
+		"Generation", "Go", "ID", "OnStop", "Provides", "View",
+	}
 	if !reflect.DeepEqual(methods, want) {
 		t.Fatalf("Scope methods: %v", methods)
+	}
+}
+
+func TestReadyAdmissionAndAfterReady(t *testing.T) {
+	run := lifecycle.New("plugin", 1, nil, nil, nil, nil)
+	scope := &gordis.Scope{Scope: run.Scope()}
+	if _, err := scope.AcquireReady(); !errors.Is(err, gordis.ErrNotReady) {
+		t.Fatalf("AcquireReady before commit: %v", err)
+	}
+	started := make(chan struct{})
+	releaseTask := make(chan struct{})
+	if err := scope.AfterReady("post-commit", func(context.Context) error {
+		close(started)
+		<-releaseTask
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+		t.Fatal("AfterReady task started before commit")
+	default:
+	}
+	if err, _ := run.Commit(context.Background(), nil, nil, func(map[string]any) {}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("AfterReady task did not start")
+	}
+	release, err := scope.AcquireReady()
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	run.Freeze()
+	if _, err := scope.AcquireReady(); !errors.Is(err, gordis.ErrClosed) {
+		t.Fatalf("AcquireReady after freeze: %v", err)
+	}
+	run.Quiesce()
+	close(releaseTask)
+	if err := run.Dispose(); err != nil {
+		t.Fatal(err)
 	}
 }

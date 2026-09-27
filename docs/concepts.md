@@ -12,19 +12,13 @@ Plugin prototype ──Spec()──> PluginSpec
 Key[T] ──Spec()──> ServiceSpec ──declared in──> PluginSpec.Requires / Provides
 
 Application assembly
-InstanceSpec
-├─ Plugin field ──selects──> PluginSpec.ID
-├─ ID / Config / Parent / Optional
-└─ Inputs / Outputs ──map service contracts to slots
-
-PluginSpec + InstanceSpec ──> Host
-Host ──validates──> instance graph
-                    ├─ Parent: ownership edges
-                    └─ Requires / Provides + slots: service dependency edges
+NewHost(Plugin types) ──> Host ──> synthetic root Env
+Env View + InstanceSpec(ID / Plugin / Config) ──Mount──> desired instance graph
+Host ──validates──> Requires / Provides + View labels: service dependency edges
 Host ──activates──> instance generation
                     ├─ runtime Plugin (created by PluginSpec.New())
                     ├─ Scope ──owns──> tasks / leases / cleanup
-                    └─ fixed binding: consumer Key → slot → provider instance + generation → service value
+                    └─ fixed binding: consumer Key + label → provider instance + generation → service value
 ```
 
 ## From a plugin type to one run
@@ -33,7 +27,9 @@ Host ──activates──> instance generation
 | --- | --- |
 | Plugin prototype | Passed to `NewHost`; used only to read stable metadata from `Spec()` and never started |
 | `PluginSpec` | Plugin type ID, `New`, `Requires`, and `Provides` |
-| `InstanceSpec` | Instance ID, selected plugin type, JSON configuration, and assembly relationships |
+| `Env` | Immutable owner and visibility View used to mount instances |
+| `InstanceSpec` | Owner-local ID, selected plugin type, and JSON configuration |
+| `Instance` | Stable logical handle across Update/Restart generations until Unmount |
 | Runtime Plugin object | A fresh object created by `PluginSpec.New()` for one preparation or activation |
 | generation | The activation attempt of one instance; incremented for every real activation |
 | `Scope` | Identity, fixed dependencies, tasks, leases, and cleanup for one generation |
@@ -44,12 +40,12 @@ One plugin type can create multiple independently configured instances. Restarti
 The Host uses the same preparation path for preflight and activation:
 
 ```text
-New → JSON decode → Spec contract check → optional Validate
+New → JSON decode → Spec contract check → optional Validate → Activate capability check
 ```
 
-Preflight objects are discarded, so `New` and `Validate` must be free of side effects. Resources may only be created in `Start`.
+Preflight objects are discarded, so `New` and `Validate` must be free of side effects. Resources may only be created in `Activate`.
 
-## Services, keys, and slots
+## Services, keys, and labels
 
 A service is a Go value shared between plugins, usually through an interface. Define its `Key[T]` in a small shared contract package:
 
@@ -64,47 +60,74 @@ var StoreKey = gordis.NewKey[Store]("example.store/1")
 `Key[T].Spec()` exposes the `ServiceSpec` metadata stored in
 `PluginSpec.Requires` and `PluginSpec.Provides`.
 
-A provider declares `StoreKey.Spec()` in `PluginSpec.Provides` and calls `Provide` in `Start`. A consumer declares the same contract in `Requires` and obtains its fixed binding with `Get`.
+A provider declares `StoreKey.Spec()` in `PluginSpec.Provides` and calls `Provide` in `Activate`. A consumer declares the same contract in `Requires` and obtains its fixed binding with `Get`.
 
 A Plugin is not a Service, and `Provides` does not publish the Plugin automatically. A plugin may publish itself, another object, or several service values.
 
-By default, the service name is also its slot name. Applications use `Outputs` and `Inputs` when several providers implement the same contract:
+By default, the service name is also its visibility label. Applications derive
+an isolated Env when several providers implement the same contract:
 
 ```text
-store-main  ── example.store/1 → store.primary ──> collector-main
-store-audit ── example.store/1 → store.audit   ──> collector-audit
+tenantA := host.Env().Isolate(StoreKey, "tenant-a")
+tenantB := host.Env().Isolate(StoreKey, "tenant-b")
 ```
 
-Plugin code still uses only `StoreKey`; it does not know deployment slot names. The Host requires one provider per slot and an exact contract-name and Go-type match at both ends.
+Plugin code still uses only `StoreKey`; it does not know visibility labels. The
+Host requires one provider per `(Key, label)` and an exact contract-name and Go
+type match at both ends.
 
 ## Ownership and service dependencies
 
-Gordis tracks two independent relationships:
-
-- `InstanceSpec.Parent` expresses lifecycle ownership: which instance should stop with which parent.
-- `PluginSpec.Requires` expresses service dependency: which provider must start first and clean up last.
-
-Neither relationship replaces the other. A child does not gain access to its parent's services automatically, and unrelated instances may still collaborate through services. The Host combines both relationships into one acyclic graph, starts parents and providers first, and cleans up children and consumers first.
-
-`Optional: true` applies only to children and excludes that subtree from the parent's `GroupReady` result. It does not relax service validation or protect other consumers that depend on the optional plugin.
+Every `host.Env().Mount` instance is owned by the synthetic root and drained by
+`Shutdown`. A plugin can mount children through `scope.Env()`; those children
+belong to that exact parent generation and are reclaimed when it stops or is
+replaced. `PluginSpec.Requires` independently expresses service dependency, so
+consumers clean up before providers. Ownership does not imply a readiness
+dependency: a pending or failed child does not change its owner's phase or
+`WaitReady` result unless the owner explicitly requires a Service it provides.
 
 ## State, readiness, and waiting
 
-Common instance states are:
+The primary generation lifecycle uses these `Phase` values:
 
 ```text
-registered → starting → ready → stopping → stopped
-               │                    │
-               └──── failed ────────┘
-pending ─────────dependency appears─> starting
+pending ──dependency appears──> activating ──> ready ──> stopping ──> stopped
+                                      │                         ▲
+                                      └──────── failure ────────┘
 ```
 
-- `Ready` means the instance itself has started and published its services.
-- `GroupReady` also requires every non-optional child to be ready.
-- `AllowPending` lets a dynamically submitted consumer wait for a missing service; static `NewHost` assembly still requires a complete graph.
-- `Snapshot` reports bindings, generation, blocked slots, tasks, leases, stop reasons, and cleanup results.
+Failure is not a `Phase`; it is recorded independently from final `Outcome` and cleanup diagnostics.
 
-Operation completion and instance readiness are different. A dynamic change can commit successfully while an instance remains pending; use `WaitOperation` and `WaitReady` for the two conditions.
+- `ready` means the instance itself has activated and published its services.
+- A missing required binding automatically leaves the desired Instance in `pending`; no instance-level opt-in exists.
+- `Snapshot` reports Phase, Failure/Outcome, bindings, generation, blocked labels, tasks, leases, stop reasons, and cleanup results.
+
+Commit and readiness are different. `Env.Mount` can commit successfully while
+an instance remains pending; use `Instance.WaitReady` only when the next step
+requires that exact desired revision. `Operation.WaitReady` checks every exact
+target pinned by the operation, but does not recursively add their children.
+
+## Application readiness gates
+
+When an application needs a minimum set of capabilities, model the check as a
+normal plugin that requires those Services:
+
+```go
+func (*applicationReady) Spec() gordis.PluginSpec {
+    return gordis.PluginSpec{
+        ID: "application-ready",
+        Requires: []gordis.ServiceSpec{
+            DatabaseKey.Spec(), SchedulerKey.Spec(), HTTPServerKey.Spec(),
+        },
+        New: func() gordis.Plugin { return new(applicationReady) },
+    }
+}
+```
+
+Mount providers first, then call `MountReady` for this gate. The gate becomes
+pending whenever one of its required Services is unavailable. Startup tooling
+can inspect provider failures and `Snapshot.BlockedBy`/`BlockedLabels` when the
+gate cannot become ready; subtree health aggregation is not a core state.
 
 ## Scope and resource ownership
 

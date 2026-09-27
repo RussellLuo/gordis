@@ -9,7 +9,7 @@ it does not link the sampler implementation.
 
 ## Run
 
-Requirements: Go 1.22+ and Node.js 22+.
+Requirements: Go 1.27+ and Node.js 22+.
 
 In the first terminal, enter this example directory, then build and start the
 Host:
@@ -51,13 +51,17 @@ the old one away, before rebuilding changed source with the same version.
 1. `build.mjs` writes the backend, manifest, and hashed UI assets to
    `packages/sampler/<version>`.
 2. The running Host discovers the package and exposes it in its catalog.
-3. Loading validates the bundle and uses `Preview` and `Apply` to add backend
-   and gateway instances to the Gordis graph.
-4. Each backend publishes a private HTTP endpoint. The generic gateway proxies
+3. The application Loader retains package/version, enabled state, and stable
+   Instance handles. It translates package changes into
+   `ChangeSet.Apply → Operation`; Gordis does not own package metadata.
+4. Each backend is mounted from an Env that isolates its endpoint Service. Once
+   ready, the Loader mounts a gateway child from `backend.Env()`, so the child
+   shares that View and is reclaimed with its backend.
+5. Each backend publishes a private HTTP endpoint. The generic gateway proxies
    it under `/api/extensions/<instance>/`.
-5. When an instance is ready, the browser imports the validated UI module and
+6. When an instance is ready, the browser imports the validated UI module and
    registers its page and instance panel.
-6. Disable, upgrade, and uninstall operations withdraw the gateway, drain
+7. Disable, upgrade, and uninstall operations withdraw the gateway, drain
    requests, and stop the backend through `quiesce -> dispose -> shutdown`.
 
 Start with [build.mjs](build.mjs), [host/app.go](host/app.go),

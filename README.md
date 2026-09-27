@@ -8,7 +8,8 @@ dependency order.
 
 ## Quick start
 
-A plugin describes its type with `Spec` and starts its work in `Start`:
+A plugin describes its type with `Spec` and starts one generation in
+`Activate`:
 
 ```go
 package main
@@ -30,24 +31,26 @@ func (*greeterPlugin) Spec() gordis.PluginSpec {
 	}
 }
 
-func (*greeterPlugin) Start(_ context.Context, scope *gordis.Scope) error {
+func (*greeterPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
 	fmt.Printf("%s: Hello, Gordis!\n", scope.ID())
 	return nil
 }
 
 func main() {
 	ctx := context.Background()
-	host, err := gordis.NewHost(
-		[]gordis.Plugin{new(greeterPlugin)},
-		[]gordis.InstanceSpec{{ID: "greeter", Plugin: "greeter"}},
-	)
+	host, err := gordis.NewHost([]gordis.Plugin{new(greeterPlugin)})
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err = host.Start(ctx); err != nil {
+	defer host.Shutdown(context.Background())
+
+	instance, err := host.Env().MountReady(ctx, gordis.InstanceSpec{
+		ID: "greeter", Plugin: "greeter",
+	})
+	if err != nil {
 		log.Fatal(err)
 	}
-	if err = host.Stop(ctx); err != nil {
+	if err = instance.Unmount(ctx); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -59,51 +62,56 @@ Running the program prints:
 greeter: Hello, Gordis!
 ```
 
-`InstanceSpec` adds one `greeter` instance; the Host validates, starts, and
-stops it. The [basic example](examples/basic/README.md) continues with a typed
-service, configuration, and multiple instances.
+`NewHost` fixes the compiled Plugin type catalog. `Env.MountReady` adds one
+root instance and waits for its exact desired revision; the returned `Instance`
+can later be updated, restarted, awaited, or unmounted.
 
 ## Core model
 
 ```text
 Plugin prototype ──Spec──> PluginSpec
-InstanceSpec ──selects──> PluginSpec.ID
+NewHost(Plugin types) ──> Host ──> synthetic root Env
+root Env + InstanceSpec ──Mount──> logical Instance
+                                      └── generation
+                                          ├── runtime Plugin
+                                          └── Scope
 
-PluginSpec + InstanceSpec ──> Host
-Host ──activates──> instance generation
-                    ├── runtime Plugin
-                    └── Scope
-
-Parent = lifecycle ownership
-Key[T] (Requires/Provides) + slots = service dependency and binding
+Key[T] (Requires/Provides) + Env View = fixed service binding
 ```
 
 `PluginSpec` describes a reusable plugin type; `InstanceSpec` selects it and
-configures a concrete instance. The Host validates the resulting graph. Each
-activation creates a fresh runtime Plugin and Scope, which owns its tasks,
-requests, and cleanup.
+configures a concrete root instance. Each activation creates a fresh runtime
+Plugin and Scope, which owns its tasks, requests, and cleanup. Missing required
+services put the logical Instance in `pending`; mounting the provider lets the
+Host converge it automatically.
 
-`Parent` expresses lifecycle ownership. `Key[T]`, `Requires`/`Provides`, and
-slots express service dependencies and bindings. Together they determine
-startup and cleanup order.
+`Env.Isolate` derives an immutable visibility View. `Key[T]` and
+`Requires`/`Provides` determine dependency and cleanup order, while the View
+selects the provider label fixed for one generation.
+
+Ownership and readiness are deliberately separate: a child follows its owner
+generation for restart and cleanup, but only declared Service dependencies
+decide whether an instance can become ready.
+
+Loaders and other control planes use `Host.Changes()` to build cross-instance
+changes and `ChangeSet.Apply` to validate and atomically commit the complete
+candidate. The returned Operation observes commit, convergence completion, and
+readiness of its explicit targets separately. The core does not read
+configuration files or maintain a second Loader runtime graph.
 
 `processbridge` can provide the same service contract from a child process
 without changing consumers.
 
+The optional `events` package provides Scope-owned typed Topics/Hooks with
+local and Process delivery, stable ordering, bounded parallelism, selection,
+and waterfall dispatch.
+
 ## Examples
 
-The examples form a gradual learning path:
-
-| Example | Focus |
-| --- | --- |
-| [basic](examples/basic/README.md) | Typed services and per-instance configuration |
-| [composition](examples/composition/README.md) | Multiple service slots and parent/child ownership |
-| [optional](examples/optional/README.md) | Optional child failure and `GroupReady` |
-| [lifecycle](examples/lifecycle/README.md) | Managed tasks, request leases, and cleanup order |
-| [dynamic](examples/dynamic/README.md) | `Preview`, `Apply`, pending state, and `Restore` |
-| [process](examples/process/README.md) | A typed service provided by an independently built process |
-| [duplex](examples/duplex/README.md) | Bidirectional Host/plugin calls over stdio |
-| [application-plugin](examples/application-plugin/README.md) | A versioned backend and UI delivered after Host startup |
+Start with [basic](examples/basic/README.md) for typed services, configuration,
+and instance mounting. See the [examples guide](examples/README.md) for
+isolation, ownership, readiness, dynamic changes, process plugins, and
+application integration.
 
 ## Documentation
 

@@ -7,7 +7,7 @@ Gordis 是一个用于组合 Go 插件的轻量框架，通过类型化服务连
 
 ## 快速开始
 
-插件通过 `Spec` 描述类型，并在 `Start` 中开始工作：
+插件通过 `Spec` 描述类型，并在 `Activate` 中启动一代运行：
 
 ```go
 package main
@@ -29,24 +29,26 @@ func (*greeterPlugin) Spec() gordis.PluginSpec {
 	}
 }
 
-func (*greeterPlugin) Start(_ context.Context, scope *gordis.Scope) error {
+func (*greeterPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
 	fmt.Printf("%s: Hello, Gordis!\n", scope.ID())
 	return nil
 }
 
 func main() {
 	ctx := context.Background()
-	host, err := gordis.NewHost(
-		[]gordis.Plugin{new(greeterPlugin)},
-		[]gordis.InstanceSpec{{ID: "greeter", Plugin: "greeter"}},
-	)
+	host, err := gordis.NewHost([]gordis.Plugin{new(greeterPlugin)})
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err = host.Start(ctx); err != nil {
+	defer host.Shutdown(context.Background())
+
+	instance, err := host.Env().MountReady(ctx, gordis.InstanceSpec{
+		ID: "greeter", Plugin: "greeter",
+	})
+	if err != nil {
 		log.Fatal(err)
 	}
-	if err = host.Stop(ctx); err != nil {
+	if err = instance.Unmount(ctx); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -58,47 +60,45 @@ func main() {
 greeter: Hello, Gordis!
 ```
 
-`InstanceSpec` 添加一个 `greeter` 实例，Host 负责校验、启动和停止。
-[basic 示例](examples/basic/README.md)继续引入类型化服务、配置和多个实例。
+`NewHost` 固定静态链接的 Plugin 类型目录；`Env.MountReady` 挂载一个 root 实例并等待
+该次精确 desired revision。返回的 `Instance` 可继续更新、重启、等待或卸载。
 
 ## 核心模型
 
 ```text
 Plugin 原型 ──Spec──> PluginSpec
-InstanceSpec ──选择──> PluginSpec.ID
+NewHost（Plugin 类型）──> Host ──> synthetic root Env
+root Env + InstanceSpec ──Mount──> 逻辑 Instance
+                                      └── generation
+                                          ├── Plugin 运行对象
+                                          └── Scope
 
-PluginSpec + InstanceSpec ──> Host
-Host ──激活──> 实例 generation
-               ├── Plugin 运行对象
-               └── Scope
-
-Parent = 生命周期所有权
-Key[T]（Requires/Provides）+ 槽位 = 服务依赖与绑定
+Key[T]（Requires/Provides）+ Env View = 固定服务绑定
 ```
 
-`PluginSpec` 描述可复用的插件类型；`InstanceSpec` 选择类型并配置具体实例。
-Host 校验实例图。每次激活都会创建新的 Plugin 运行对象和 Scope，由 Scope
-管理任务、请求和清理。
+`PluginSpec` 描述可复用的插件类型；`InstanceSpec` 选择类型并配置一个 root 实例。
+每次激活都会创建新的 Plugin 运行对象和 Scope，由 Scope 管理任务、请求和清理。
+required Service 暂缺时逻辑 Instance 自动进入 `pending`；挂载 provider 后 Host 自动收敛。
 
-`Parent` 表达生命周期所有权；`Key[T]`、`Requires`/`Provides` 和槽位表达服务
-依赖与绑定。它们共同决定启动和清理顺序。
+`Env.Isolate` 派生不可变的可见性 View。`Key[T]` 与 `Requires`/`Provides` 决定依赖和清理
+顺序，View 则选择一代运行期间固定的 provider 标签。
+
+ownership 与 readiness 明确分离：child 随 owner generation 换代和清理；实例是否能 Ready
+只由显式声明的 Service 依赖决定。
+
+Loader 或其他管理面使用 `Host.Changes()` 构造跨实例变更，再由 `ChangeSet.Apply` 校验并
+原子提交完整候选图；返回的 Operation 分别观察提交、收敛完成与其显式 targets 是否
+Ready。核心不读取配置文件或维护另一棵 Loader runtime graph。
 
 `processbridge` 可以从子进程提供同一服务契约，而消费者无需改变。
 
+可选的 `events` 包提供由 Scope 拥有的类型化 Topic/Hook，支持 Local 与 Process 投递、稳定
+顺序、有界并行、响应选择和 waterfall。
+
 ## 示例
 
-这些示例组成一条逐步深入的学习路径：
-
-| 示例 | 重点 |
-| --- | --- |
-| [basic](examples/basic/README.md) | 类型化服务与实例配置 |
-| [composition](examples/composition/README.md) | 多服务槽位与父子所有权 |
-| [optional](examples/optional/README.md) | 可选子插件失败与 `GroupReady` |
-| [lifecycle](examples/lifecycle/README.md) | 受管任务、请求租约与清理顺序 |
-| [dynamic](examples/dynamic/README.md) | `Preview`、`Apply`、pending 与 `Restore` |
-| [process](examples/process/README.md) | 由独立构建进程提供的类型化服务 |
-| [duplex](examples/duplex/README.md) | Host 与插件通过 stdio 双向调用 |
-| [application-plugin](examples/application-plugin/README.md) | Host 启动后交付带后端和 UI 的版本化插件 |
+从 [basic](examples/basic/README.md) 开始了解类型化 Service、配置和实例挂载。完整的隔离、
+所有权、就绪、动态变更、进程插件与应用集成示例见[示例指南](examples/README.md)。
 
 ## 文档
 

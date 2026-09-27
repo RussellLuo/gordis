@@ -31,11 +31,9 @@ err := process.Serve(ctx, os.Stdin, os.Stdout, identity, process.Limits{}, proce
 
 `process.Caller.Call(ctx, method, params, result)` 可并发使用。初始化期间也可以回调 Host；处理器还可以嵌套调用对端，但不应形成递归调用或等待环。
 
-可运行示例：
-
-- [process](../examples/process/README.md)：进程插件向 Gordis Consumer 提供类型化服务。
-- [duplex](../examples/duplex/README.md)：一次 Host → 插件 → Host 的嵌套调用。
-- [application-plugin](../examples/application-plugin/README.md)：远端 Plugin 自带数据面，并把 UI 加载进 Host。
+可执行证据位于 [process 测试](../process)（协议与嵌套 duplex call）和
+[processbridge 测试](../processbridge)（类型化 Service、Event federation、Env 集成、
+生命周期、崩溃与清理）。
 
 ## 线协议
 
@@ -66,9 +64,42 @@ hello(gordis.process/1)
 - Host 中的 `Adapter` 获取声明的依赖、启动进程，并在同一个 Key 下发布类型化代理。
 - 子进程中的 `Serve` 创建本代 Scope、注入依赖代理，并导出业务 Plugin 提供的服务。
 
-业务 Plugin 仍使用普通的 `Spec`、`Start`、`Get` 和 `Provide`。Consumer 不知道得到的是本地对象还是进程代理。仅凭服务名无法安全推导 RPC，因此 wire binding 必须显式存在。
+业务 Plugin 仍使用普通的 `Spec`、`Activate`、`Get` 和 `Provide`。Consumer 不知道得到的是本地对象还是进程代理。仅凭服务名无法安全推导 RPC，因此 wire binding 必须显式存在。
 
 Adapter 的 ID 是逻辑插件类型 ID，不应编码 `-process` 等执行方式。实例 ID 和 generation 由 Host 分配，子进程不得创建自己的 Host 或重新编号。
+
+### Event federation
+
+Event wire 只在选用 Process 的装配边界登记；本地 Topic/Hook 与业务 Plugin 不携带 codec：
+
+```go
+var Notice = events.NewTopic[NoticePayload]("app.notice/1")
+
+var NoticeWire = processbridge.BindTopic(
+    Notice,
+    processbridge.JSONEventCodec[NoticePayload]("app.notice.json/1"),
+    processbridge.EventPublish|processbridge.EventSubscribe,
+)
+```
+
+Host 的 `processbridge.Adapter.Events` 与子进程的 `processbridge.ServeOptions.Events` 必须登记
+相同集合。`BindHook` 分别登记输入和输出 codec；自定义 `EventCodec` 可以替代 JSON。
+codec ID 是 schema/encoding 身份，不兼容变化必须使用新 ID。`hello` 同时核对逐项 wire
+fingerprint 与完整 registry fingerprint，因此缺项、多项、方向或 schema 不一致都会在远端
+业务 `Activate` 前失败。
+
+远端 Plugin 仍声明 `events.BusKey.Spec()`，并使用普通 `events.Bind(scope).On/Handle/Use` 与
+`Publish/Serial/Waterfall`。Bridge 将远端订阅映射为 Host Bus 中由当前 Adapter Scope 拥有的
+代理 handler；因此 Local→Process、Process→Local 和 Process→Process 与 Local→Local
+共享 Topic/来源 Service View、priority/注册顺序、Once/Global、Ready gate 和 bounded
+parallelism。远端 `AfterReady` publish 会等待 Host generation Ready。
+
+subscription ID、callback token 和消息都受当前 session/instance/generation 约束。
+waterfall 的 `next` token 只能在当前 middleware 返回前调用一次；返回后调用会得到
+`events.ErrNextExpired`。timeout/cancel、handler error 和 backpressure 显式返回，不自动
+重试。远端断线或任一侧 Scope 停止时，Host 先撤销该 generation 的全部
+代理订阅，再完成进程清理。没有实例控制 wire，远端 `Scope.Env().Mount` 会返回
+`gordis.ErrEnvUnavailable`。
 
 ## 生命周期与清理
 

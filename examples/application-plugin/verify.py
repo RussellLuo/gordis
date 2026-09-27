@@ -89,7 +89,9 @@ def main():
             request("api/package/load", {"packageID": "sampler", "version": "1.1.0"})
             current = catalog()
             assert {i["id"] for i in current["instances"]} == {"sampler--alpha", "sampler--beta"}
-            assert len(current["packages"]) == 1 and all(i["state"] == "ready" for i in current["instances"])
+            assert len(current["packages"]) == 1 and all(
+                i["mounted"] and i["phase"] == "ready" for i in current["instances"]
+            )
             ui_v1 = current["packages"][0]
             assert b"overview" in request(ui_v1["entry"].removeprefix("/demo/"), raw=True)
             for style in ui_v1["styles"]:

@@ -18,22 +18,29 @@ func NewKey[T any](name string) Key[T] {
 	return Key[T]{lifecycle.NewServiceSpec(name, reflect.TypeOf((*T)(nil)).Elem())}
 }
 
-// Name returns the logical service name. Use it when mapping an InstanceSpec's
-// Inputs or Outputs to deployment slots.
+// Name returns the logical service name. It is also the default visibility
+// label used by Env when the key is not isolated.
 func (k Key[T]) Name() string { return k.service.Name() }
 
 // Spec returns the contract metadata used to declare a required or provided
 // service. It does not create or resolve the service value.
 func (k Key[T]) Spec() ServiceSpec { return k.service }
 
-// Provide stages a declared service until Start succeeds. A scope may provide
+// Provide stages a declared service until Activate succeeds. A scope may provide
 // each declared key once. Typed nils are rejected as well as nil interfaces.
 func Provide[T any](s *Scope, key Key[T], value T) error {
-	return lifecycle.Provide(s, key.service, value)
+	if s == nil || s.Scope == nil {
+		return ErrClosed
+	}
+	return lifecycle.Provide(s.Scope, key.service, value)
 }
 
 // Get only returns services declared in Requires. References remain valid until
 // this consumer's cleanup finishes; they must not escape its scope lifetime.
 func Get[T any](s *Scope, key Key[T]) (T, error) {
-	return lifecycle.Get[T](s, key.service)
+	if s == nil || s.Scope == nil {
+		var zero T
+		return zero, ErrClosed
+	}
+	return lifecycle.Get[T](s.Scope, key.service)
 }

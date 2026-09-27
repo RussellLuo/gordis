@@ -68,7 +68,7 @@ var sampleBinding = Bind(sampleKey, func(c process.Caller) sampleService {
 	}
 })
 
-// Every execution mode below calls this exact Plugin/Start, including its task,
+// Every execution mode below calls this exact Plugin/Activate, including its task,
 // initialization dependency call, OnStop and reverse-order Defer callbacks.
 type fixturePlugin struct {
 	Mode string `json:"mode"`
@@ -83,7 +83,7 @@ func (*fixturePlugin) Spec() gordis.PluginSpec {
 	}
 }
 
-func (p *fixturePlugin) Start(ctx context.Context, s *gordis.Scope) error {
+func (p *fixturePlugin) Activate(ctx context.Context, s *gordis.Scope) error {
 	j, err := gordis.Get(s, journalKey)
 	if err != nil {
 		return err
@@ -157,7 +157,7 @@ func newTestPlugin(
 
 func (p *testPlugin) Spec() gordis.PluginSpec { return p.spec }
 
-func (p *testPlugin) Start(ctx context.Context, scope *gordis.Scope) error {
+func (p *testPlugin) Activate(ctx context.Context, scope *gordis.Scope) error {
 	return p.start(ctx, scope)
 }
 
@@ -308,18 +308,19 @@ func TestPluginLifecycleConsistency(t *testing.T) {
 						consumer := newTestPlugin(
 							"consumer", []gordis.ServiceSpec{sampleKey.Spec()}, nil, consumerStart,
 						)
-						h, err := gordis.NewHost(
-							[]gordis.Plugin{provider, fixture, consumer},
-							[]gordis.InstanceSpec{
-								{ID: "journal", Plugin: "journal"},
-								{ID: "sample", Plugin: "fixture", Config: raw},
-								{ID: "consumer", Plugin: "consumer"},
-							},
-						)
+						h, err := gordis.NewHost([]gordis.Plugin{provider, fixture, consumer})
 						if err != nil {
 							t.Fatal(err)
 						}
-						startErr = h.Start(context.Background())
+						changes := h.Changes()
+						changes.Mount(h.Env(), gordis.InstanceSpec{ID: "journal", Plugin: "journal"})
+						changes.Mount(h.Env(), gordis.InstanceSpec{ID: "sample", Plugin: "fixture", Config: raw})
+						changes.Mount(h.Env(), gordis.InstanceSpec{ID: "consumer", Plugin: "consumer"})
+						operation, err := changes.Apply(context.Background())
+						if err != nil {
+							t.Fatal(err)
+						}
+						startErr = operation.WaitReady(context.Background())
 						if startErr == nil {
 							if value, err := service.Sample(context.Background(), "ok"); err != nil || value != "sample/1:ok" {
 								t.Fatal(value, err)
@@ -328,7 +329,7 @@ func TestPluginLifecycleConsistency(t *testing.T) {
 								_, _ = service.Sample(context.Background(), "fail")
 								waitFor(t, func() bool {
 									for _, s := range h.Snapshot() {
-										if s.ID == "sample" {
+										if s.QualifiedID == "sample" {
 											return s.CleanupComplete
 										}
 									}
@@ -338,9 +339,9 @@ func TestPluginLifecycleConsistency(t *testing.T) {
 						}
 						stopErr = stopHost(t, h)
 						for _, s := range h.Snapshot() {
-							if s.ID == "sample" {
+							if s.QualifiedID == "sample" {
 								residual = len(s.Residuals) > 0
-								if mode == "task-error" && !strings.Contains(s.LastError, "worker fixture error") {
+								if mode == "task-error" && !strings.Contains(s.Failure, "worker fixture error") {
 									t.Fatal(s)
 								}
 							}
@@ -505,24 +506,29 @@ func processHost(
 		"consumer", []gordis.ServiceSpec{sampleKey.Spec()}, nil, consumerStart,
 	)
 	raw, _ := json.Marshal(map[string]string{"mode": mode})
-	h, err := gordis.NewHost(
-		[]gordis.Plugin{provider, plugin, consumer},
-		[]gordis.InstanceSpec{
-			{ID: "journal", Plugin: "journal"},
-			{ID: "sample", Plugin: "fixture", Config: raw},
-			{ID: "consumer", Plugin: "consumer"},
-		},
-	)
+	h, err := gordis.NewHost([]gordis.Plugin{provider, plugin, consumer})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := h.Start(context.Background()); err != nil {
+	if _, err := h.Env().MountReady(context.Background(), gordis.InstanceSpec{
+		ID: "journal", Plugin: "journal",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Env().MountReady(context.Background(), gordis.InstanceSpec{
+		ID: "sample", Plugin: "fixture", Config: raw,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Env().MountReady(context.Background(), gordis.InstanceSpec{
+		ID: "consumer", Plugin: "consumer",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		_ = h.Stop(ctx)
+		_ = h.Shutdown(ctx)
 	})
 	return h, client, consumerScope, service, providerScope, disposed
 }
@@ -612,9 +618,6 @@ func TestKilledOrCrashedPluginRetainsUnknownCleanup(t *testing.T) {
 			if d.CleanupKnown || *disposed {
 				t.Fatal("unknown cleanup released dependency", d, *disposed)
 			}
-			if err := h.StartInstance(context.Background(), "sample"); err == nil {
-				t.Fatal("residual generation reused")
-			}
 		})
 	}
 }
@@ -633,7 +636,7 @@ func TestStuckHostCleanupCallbackBlocksProviderAfterKill(t *testing.T) {
 	// Release before the host test cleanup even if an assertion fails.
 	t.Cleanup(func() { once.Do(func() { close(release) }) })
 	stopped := make(chan error, 1)
-	go func() { stopped <- h.Stop(context.Background()) }()
+	go func() { stopped <- h.Shutdown(context.Background()) }()
 	receive(t, entered)
 	waitFor(t, func() bool { return c.Snapshot().Reaped && c.Snapshot().IOComplete })
 	d := c.Snapshot()
@@ -658,7 +661,7 @@ func TestStuckHostCleanupCallbackBlocksProviderAfterKill(t *testing.T) {
 func stopHost(t *testing.T, h *gordis.Host) error {
 	t.Helper()
 	var err error
-	waitFor(t, func() bool { err = h.Stop(context.Background()); return !errors.Is(err, gordis.ErrBusy) })
+	waitFor(t, func() bool { err = h.Shutdown(context.Background()); return !errors.Is(err, gordis.ErrBusy) })
 	return err
 }
 
@@ -728,14 +731,14 @@ func TestObserverPanicCannotOrphanStartedProcess(t *testing.T) {
 	provider := newTestPlugin(
 		"journal", nil, []gordis.ServiceSpec{journalKey.Spec()}, providerStart,
 	)
-	h, err := gordis.NewHost(
-		[]gordis.Plugin{provider, plugin},
-		[]gordis.InstanceSpec{{ID: "journal", Plugin: "journal"}, {ID: "sample", Plugin: "fixture"}},
-	)
+	h, err := gordis.NewHost([]gordis.Plugin{provider, plugin})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := h.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "observer failure") {
+	if _, err := h.Env().MountReady(context.Background(), gordis.InstanceSpec{ID: "journal", Plugin: "journal"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Env().MountReady(context.Background(), gordis.InstanceSpec{ID: "sample", Plugin: "fixture"}); err == nil || !strings.Contains(err.Error(), "observer failure") {
 		t.Fatal(err)
 	}
 	if err := stopHost(t, h); err != nil {

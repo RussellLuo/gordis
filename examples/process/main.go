@@ -7,7 +7,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -20,23 +19,29 @@ import (
 	"github.com/RussellLuo/gordis/processbridge"
 )
 
-type consumerPlugin struct{ service *contract.Greeter }
+type consumerPlugin struct{}
 
-func (p *consumerPlugin) Spec() gordis.PluginSpec {
+func (*consumerPlugin) Spec() gordis.PluginSpec {
 	return gordis.PluginSpec{
 		ID:       "consumer",
 		Requires: []gordis.ServiceSpec{contract.GreeterKey.Spec()},
-		New:      func() gordis.Plugin { return &consumerPlugin{service: p.service} },
+		New:      func() gordis.Plugin { return new(consumerPlugin) },
 	}
 }
 
-func (p *consumerPlugin) Start(_ context.Context, scope *gordis.Scope) error {
-	var err error
-	*p.service, err = gordis.Get(scope, contract.GreeterKey)
+func (*consumerPlugin) Activate(ctx context.Context, scope *gordis.Scope) error {
+	greeter, err := gordis.Get(scope, contract.GreeterKey)
+	if err != nil {
+		return err
+	}
+	greeting, err := greeter.Greet(ctx, "Gordis")
+	if err == nil {
+		fmt.Println(greeting)
+	}
 	return err
 }
 
-func run(path string) (err error) {
+func run(path string) error {
 	var child *process.Client
 	greeter, err := (processbridge.Adapter{
 		ID:       "greeter",
@@ -52,42 +57,27 @@ func run(path string) (err error) {
 	if err != nil {
 		return err
 	}
-	var service contract.Greeter
-	consumer := &consumerPlugin{service: &service}
-	host, err := gordis.NewHost([]gordis.Plugin{greeter, consumer}, nil)
+	host, err := gordis.NewHost([]gordis.Plugin{greeter, new(consumerPlugin)})
 	if err != nil {
 		return err
 	}
-	defer func() { err = errors.Join(err, host.Stop(context.Background())) }()
+	// Reclaim Host resources if a later setup or runtime step fails.
+	defer host.Shutdown(context.Background())
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := host.Start(ctx); err != nil {
-		return err
-	}
+
 	fmt.Printf("host PID %d started without a plugin\n", os.Getpid())
-	plan, err := host.Preview(gordis.Change{Upsert: []gordis.InstanceSpec{
-		{ID: "greeter", Plugin: "greeter"},
-		{ID: "consumer", Plugin: "consumer"},
-	}})
-	if err != nil {
+	if _, err := host.Env().MountReady(ctx, gordis.InstanceSpec{ID: "greeter", Plugin: "greeter"}); err != nil {
 		return err
 	}
-	op, err := host.Apply(ctx, plan)
-	if err != nil {
+	fmt.Printf("plugin PID %d started\n", child.Snapshot().PID)
+
+	if _, err := host.Env().MountReady(ctx, gordis.InstanceSpec{ID: "consumer", Plugin: "consumer"}); err != nil {
 		return err
 	}
-	if err := host.WaitOperation(ctx, op); err != nil {
-		return err
-	}
-	if err := host.WaitReady(ctx, "consumer"); err != nil {
-		return err
-	}
-	greeting, err := service.Greet(ctx, "Gordis")
-	if err != nil {
-		return err
-	}
-	fmt.Printf("plugin PID %d: %s\n", child.Snapshot().PID, greeting)
-	if err := host.Stop(ctx); err != nil {
+
+	if err := host.Shutdown(ctx); err != nil {
 		return err
 	}
 	state := child.Snapshot()

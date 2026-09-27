@@ -1,6 +1,6 @@
 module example.com/gordis-application-plugin/host
 
-go 1.22
+go 1.27
 
 require (
 	example.com/gordis-application-plugin v0.0.0

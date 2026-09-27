@@ -1,6 +1,6 @@
 module example.com/gordis-application-plugin
 
-go 1.22
+go 1.27
 
 require github.com/RussellLuo/gordis v0.0.0
 

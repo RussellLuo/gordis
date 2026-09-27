@@ -42,7 +42,7 @@ func (p *gatewayPlugin) Validate() error {
 	return err
 }
 
-func (p *gatewayPlugin) Start(ctx context.Context, scope *gordis.Scope) error {
+func (p *gatewayPlugin) Activate(ctx context.Context, scope *gordis.Scope) error {
 	// Re-read and revalidate the package at activation. The Gateway is generic:
 	// application-specific behavior stays behind the endpoint contract.
 	b, err := loadBundle(p.Directory)

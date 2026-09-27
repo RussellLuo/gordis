@@ -11,82 +11,97 @@ import (
 	internalplugin "github.com/RussellLuo/gordis/internal/plugin"
 )
 
-type instance struct {
-	*graphNode
-	spec             InstanceSpec
-	bindings         []BindingSnapshot
-	state            State
-	generation       uint64
-	scope            *Scope
-	lifecycle        *lifecycle.Controller
-	err              error
-	failurePhase     string
-	stopReason       string
-	parentGeneration uint64
-	startCancel      context.CancelFunc
-	revision         uint64
-}
-
-func newInstance(node *graphNode, state State, generation, revision uint64) *instance {
-	return &instance{
-		graphNode:  node,
-		spec:       copySpec(node.spec),
-		bindings:   append([]BindingSnapshot(nil), node.bindings...),
-		state:      state,
-		generation: generation,
-		revision:   revision,
-	}
-}
-
 type serviceBinding struct {
 	provider   string
 	generation uint64
 	value      any
 }
 type operation struct {
-	done    chan struct{}
-	kind    string
-	targets map[string]bool
-	err     error
+	done       chan struct{}
+	kind       string
+	targets    map[string]bool
+	err        error
+	nestedMu   sync.Mutex
+	nestedDone chan struct{}
+	nested     int
+	finishing  bool
+}
+
+func (op *operation) addNested() bool {
+	op.nestedMu.Lock()
+	defer op.nestedMu.Unlock()
+	if op.finishing && op.nested == 0 {
+		return false
+	}
+	op.nested++
+	return true
+}
+
+func (op *operation) doneNested() {
+	op.nestedMu.Lock()
+	op.nested--
+	if op.finishing && op.nested == 0 {
+		close(op.nestedDone)
+	}
+	op.nestedMu.Unlock()
+}
+
+func (op *operation) waitNested() {
+	op.nestedMu.Lock()
+	op.finishing = true
+	if op.nested == 0 {
+		op.nestedMu.Unlock()
+		return
+	}
+	done := op.nestedDone
+	op.nestedMu.Unlock()
+	<-done
 }
 
 // Host coordinates lifecycle operations. User callbacks run without the host
-// mutex. Overlapping mutations return ErrBusy; repeated stops join the current
-// stop operation. Snapshot is safe from callbacks. Never synchronously wait for
-// your own shutdown inside a callback or managed task.
+// mutex. Overlapping mutations return ErrBusy; Shutdown waits for accepted work
+// before draining the graph. Snapshot is safe from callbacks. Never
+// synchronously wait for your own shutdown inside a callback or managed task.
 type Host struct {
 	*instanceGraph
 	mu            sync.Mutex
-	instances     map[string]*instance
+	nestedMu      sync.Mutex
+	cleanupMu     sync.Mutex
+	instances     map[string]*instanceRecord
 	services      map[string]serviceBinding
 	generations   map[string]uint64
 	revision      uint64
 	nextOperation uint64
-	operations    map[uint64]*changeRecord
+	nextLogicalID uint64
 	// Failures freeze scopes immediately; cleanup waits for the serial executor.
 	// Every entry identifies a specific generation, independently of its source.
-	pending map[string]uint64
-	op      *operation
+	pending  map[string]uint64
+	op       *operation
+	closing  bool
+	shutdown bool
 }
 
-// NewHost reads metadata from plugin prototypes, copies instance descriptions,
-// then preflights configuration and validates ownership, service contracts and
-// ordering before any Scope or resource is created.
-func NewHost(plugins []Plugin, specs []InstanceSpec) (*Host, error) {
-	g, err := buildGraph(plugins, specs, false)
+// NewHost registers the fixed set of native Plugin types and creates an empty
+// synthetic root Env. Instances are mounted through Host.Env.
+func NewHost(plugins []Plugin) (*Host, error) {
+	for _, plugin := range plugins {
+		if plugin == nil {
+			return nil, errors.New("gordis: nil plugin prototype")
+		}
+		if _, ok := plugin.(activator); !ok {
+			return nil, errors.New("gordis: plugin prototype does not implement Activate")
+		}
+	}
+	g, err := buildGraph(plugins, nil, true)
 	if err != nil {
 		return nil, err
 	}
 	h := &Host{
 		instanceGraph: g,
-		instances:     make(map[string]*instance, len(g.nodes)),
+		instances:     map[string]*instanceRecord{},
 		services:      map[string]serviceBinding{},
 		generations:   map[string]uint64{},
 		pending:       map[string]uint64{},
-		operations:    map[uint64]*changeRecord{},
-	}
-	for id, node := range g.nodes {
-		h.instances[id] = newInstance(node, Registered, 0, 0)
 	}
 	return h, nil
 }
@@ -106,7 +121,10 @@ func wait(ctx context.Context, op *operation) error {
 }
 
 func (h *Host) begin(kind string, ids []string) *operation {
-	op := &operation{kind: kind, done: make(chan struct{}), targets: map[string]bool{}}
+	op := &operation{
+		kind: kind, done: make(chan struct{}), targets: map[string]bool{},
+		nestedDone: make(chan struct{}),
+	}
 	for _, id := range ids {
 		op.targets[id] = true
 	}
@@ -115,6 +133,7 @@ func (h *Host) begin(kind string, ids []string) *operation {
 }
 
 func (h *Host) finish(op *operation, err error) {
+	op.waitNested()
 	h.mu.Lock()
 	op.err = err
 	h.op = nil
@@ -137,10 +156,10 @@ func (h *Host) scheduleFailures() {
 		}
 		delete(h.pending, id)
 		i := h.instances[id]
-		if i == nil || i.generation != gen || i.scope == nil {
+		if i == nil || i.generation() != gen || i.activation == nil || i.activation.scope == nil {
 			continue
 		}
-		complete, _ := i.lifecycle.Result()
+		complete, _ := i.activation.controller.Result()
 		if !complete {
 			ids = append(ids, id)
 		}
@@ -149,6 +168,7 @@ func (h *Host) scheduleFailures() {
 		op := h.begin("stop", ids)
 		go func() {
 			err := h.stopIDs(ids)
+			err = errors.Join(err, h.pruneFailedChildren(ids))
 			h.mu.Lock()
 			h.markPending()
 			h.mu.Unlock()
@@ -157,129 +177,36 @@ func (h *Host) scheduleFailures() {
 	}
 }
 
-// Start activates the static graph in combined ownership/dependency order.
-// Required startup failure rolls back this operation's new generations.
-// Optional branch errors are returned while healthy parent groups remain ready.
-func (h *Host) Start(ctx context.Context) error { return h.start(ctx, "") }
-
-// StartInstance activates an existing spec and its static descendants. Parents
-// and providers outside the selected subtree must already be ready.
-func (h *Host) StartInstance(ctx context.Context, id string) error {
-	if id == "" {
-		return errors.New("gordis: empty instance ID")
-	}
-	return h.start(ctx, id)
-}
-
-func (h *Host) start(ctx context.Context, id string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	h.mu.Lock()
-	if h.op != nil {
-		h.mu.Unlock()
-		return ErrBusy
-	}
-	ids := append([]string(nil), h.order...)
-	if id != "" {
-		if _, ok := h.instances[id]; !ok {
-			h.mu.Unlock()
-			return fmt.Errorf("gordis: unknown instance %q", id)
-		}
-		ids = h.owned(id)
-	}
-	op := h.begin("start", ids)
-	for _, target := range ids {
-		h.instances[target].spec.Disabled = false
-	}
-	h.revision++
-	h.mu.Unlock()
-	go func() {
-		var started []string
-		var err, optionalErrors error
-		skipped := map[string]bool{}
-		for _, id := range ids {
-			if skipped[id] {
-				continue
-			}
-			var activated bool
-			activated, err = h.activate(ctx, id)
-			if activated {
-				started = append(started, id)
-			}
-			if err != nil {
-				// Optional branches report their error without tearing down a
-				// healthy parent. Their descendants and consumers are stopped.
-				if branch := h.optionalBranch(id, op.targets); branch != "" && ctx.Err() == nil {
-					affected := h.affected(branch)
-					h.mu.Lock()
-					for _, target := range affected {
-						skipped[target] = true
-						i := h.instances[target]
-						if i.state != Failed && i.stopReason == "" {
-							i.stopReason = fmt.Sprintf("optional branch %s failed to start", branch)
-						}
-					}
-					h.mu.Unlock()
-					optionalErrors = errors.Join(optionalErrors, err, h.stopIDs(affected))
-					err = nil
-					continue
-				}
-				break
-			}
-		}
-		if err == nil {
-			h.mu.Lock()
-			err = ctx.Err()
-			for _, id := range ids {
-				if !skipped[id] && h.instances[id].state != Ready {
-					err = errors.Join(err, fmt.Errorf("gordis: instance %s lost readiness during startup", id))
-				}
-			}
-			h.mu.Unlock()
-		}
-		if err != nil {
-			err = errors.Join(err, h.stopIDs(started))
-		} else {
-			err = h.reconcile(nil)
-		}
-		h.finish(op, errors.Join(err, optionalErrors))
-	}()
-	return wait(ctx, op)
-}
-
-func (h *Host) optionalBranch(id string, selected map[string]bool) string {
-	for id != "" && selected[id] {
-		i := h.instances[id]
-		if i.spec.Optional {
-			return id
-		}
-		id = i.spec.Parent
-	}
-	return ""
-}
-
 // prerequisites checks availability; validateBindings additionally checks that
 // the parent and service providers still match this activation's fixed binding.
-func (h *Host) prerequisites(i *instance, validateBindings bool) error {
-	for _, dep := range i.prereqs {
-		if h.instances[dep].state != Ready {
-			return fmt.Errorf("gordis: instance %s blocked by %s", i.spec.ID, dep)
+func (h *Host) prerequisites(i *instanceRecord, validateBindings bool) error {
+	if i.spec.parent != "" {
+		parent := h.instances[i.spec.parent]
+		if parent == nil || parent.activation == nil || (parent.phase != PhaseActivating && parent.phase != PhaseReady) {
+			return fmt.Errorf("gordis: instance %s blocked by owner %s", localID(i.spec), i.spec.parent)
+		}
+		if i.spec.ownerGeneration != 0 && parent.generation() != i.spec.ownerGeneration {
+			return fmt.Errorf("gordis: owner generation changed for %s", localID(i.spec))
 		}
 	}
-	if validateBindings && i.spec.Parent != "" && h.instances[i.spec.Parent].generation != i.parentGeneration {
-		return fmt.Errorf("gordis: parent generation changed for %s", i.spec.ID)
+	for _, dep := range i.deps {
+		if h.instances[dep].phase != PhaseReady {
+			return fmt.Errorf("gordis: instance %s blocked by %s", localID(i.spec), dep)
+		}
 	}
-	for _, binding := range i.bindings {
+	if validateBindings && i.spec.parent != "" && h.instances[i.spec.parent].generation() != i.activation.parentGeneration {
+		return fmt.Errorf("gordis: parent generation changed for %s", localID(i.spec))
+	}
+	for _, binding := range i.bindings() {
 		if binding.Provider == "" {
-			return fmt.Errorf("gordis: instance %s: missing slot %q", i.spec.ID, binding.Slot)
+			return fmt.Errorf("gordis: instance %s: missing service label %q", localID(i.spec), binding.Label)
 		}
-		service, ok := h.services[binding.Slot]
+		service, ok := h.services[serviceAddress(binding.Service, binding.Label)]
 		if !ok ||
 			service.provider != binding.Provider ||
-			service.generation != h.instances[binding.Provider].generation ||
+			service.generation != h.instances[binding.Provider].generation() ||
 			(validateBindings && service.generation != binding.Generation) {
-			return fmt.Errorf("gordis: instance %s: binding for slot %q is unavailable", i.spec.ID, binding.Slot)
+			return fmt.Errorf("gordis: instance %s: binding for service label %q is unavailable", localID(i.spec), binding.Label)
 		}
 	}
 	return nil
@@ -290,8 +217,8 @@ func (h *Host) prerequisites(i *instance, validateBindings bool) error {
 func (h *Host) markPending() {
 	for _, id := range h.order {
 		i := h.instances[id]
-		if i.state != Failed && !h.disabled(i) && i.spec.AllowPending && !h.retains(i) && h.prerequisites(i, false) != nil {
-			i.state = Pending
+		if !i.failed() && !h.retains(i) && h.prerequisites(i, false) != nil {
+			h.setPhase(i, PhasePending)
 		}
 	}
 }
@@ -300,31 +227,48 @@ func (h *Host) markPending() {
 // startup or graph change. Runtime failures still use the Host's cleanup path.
 func (h *Host) reconcile(selected map[string]bool) error {
 	var result error
-	for _, id := range h.order {
+	for {
+		progress := false
 		h.mu.Lock()
-		i := h.instances[id]
-		if !selected[id] && i.state != Pending {
-			h.mu.Unlock()
-			continue
-		}
-		if h.disabled(i) || i.state == Ready || i.state == Failed || h.retains(i) {
-			h.mu.Unlock()
-			continue
-		}
-		blocked := h.prerequisites(i, false)
-		if blocked != nil {
-			if i.spec.AllowPending {
-				i.state = Pending
-			} else {
-				result = errors.Join(result, blocked)
+		order := append([]string(nil), h.order...)
+		h.mu.Unlock()
+		for _, id := range order {
+			h.mu.Lock()
+			i := h.instances[id]
+			if i == nil {
+				h.mu.Unlock()
+				continue
+			}
+			if !selected[id] && i.phase != PhasePending {
+				h.mu.Unlock()
+				continue
+			}
+			if i.phase == PhaseReady || i.failed() || h.retains(i) {
+				h.mu.Unlock()
+				continue
+			}
+			blocked := h.prerequisites(i, false)
+			if blocked != nil {
+				h.setPhase(i, PhasePending)
+				h.mu.Unlock()
+				continue
 			}
 			h.mu.Unlock()
-			continue
+			activated, err := h.activate(context.Background(), id)
+			progress = progress || activated
+			if err != nil {
+				h.mu.Lock()
+				generation := uint64(0)
+				if current := h.instances[id]; current != nil {
+					generation = current.generation()
+				}
+				affected := h.affected(id)
+				h.mu.Unlock()
+				result = errors.Join(result, err, h.stopIDs(affected), h.pruneOwnedGeneration(id, generation))
+			}
 		}
-		h.mu.Unlock()
-		_, err := h.activate(context.Background(), id)
-		if err != nil {
-			result = errors.Join(result, err, h.stopIDs(h.affected(id)))
+		if !progress {
+			break
 		}
 	}
 	h.mu.Lock()
@@ -333,20 +277,14 @@ func (h *Host) reconcile(selected map[string]bool) error {
 	return result
 }
 
-func (h *Host) disabled(i *instance) bool {
-	for i != nil {
-		if i.spec.Disabled {
-			return true
-		}
-		i = h.instances[i.spec.Parent]
-	}
-	return false
-}
-
 func (h *Host) activate(ctx context.Context, id string) (bool, error) {
 	h.mu.Lock()
 	i := h.instances[id]
-	if i.state == Ready {
+	if i.phase == PhaseReady {
+		h.mu.Unlock()
+		return false, nil
+	}
+	if i.phase == PhaseActivating {
 		h.mu.Unlock()
 		return false, nil
 	}
@@ -363,19 +301,21 @@ func (h *Host) activate(ctx context.Context, id string) (bool, error) {
 		return false, err
 	}
 	h.generations[id]++
-	i.generation = h.generations[id]
-	gen := i.generation
-	i.state = Starting
-	i.err = nil
-	i.failurePhase = ""
-	i.stopReason = ""
-	if i.spec.Parent != "" {
-		i.parentGeneration = h.instances[i.spec.Parent].generation
+	gen := h.generations[id]
+	activation := &activationRecord{
+		generation: gen,
+		bindings:   append([]BindingSnapshot(nil), i.graphNode.bindings...),
+		startDone:  make(chan struct{}),
+	}
+	i.activation = activation
+	h.setPhase(i, PhaseActivating)
+	if i.spec.parent != "" {
+		activation.parentGeneration = h.instances[i.spec.parent].generation()
 	}
 	services := map[string]any{}
-	for n := range i.bindings {
-		binding := &i.bindings[n]
-		service := h.services[binding.Slot]
+	for n := range activation.bindings {
+		binding := &activation.bindings[n]
+		service := h.services[serviceAddress(binding.Service, binding.Label)]
 		binding.Generation = service.generation
 		services[binding.Service] = service.value
 	}
@@ -387,11 +327,11 @@ func (h *Host) activate(ctx context.Context, id string) (bool, error) {
 		services,
 		func(err error) { h.runtimeFailure(id, gen, err) },
 	)
-	s := run.Scope()
-	i.lifecycle = run
-	i.scope = s
+	s := newScope(run.Scope(), h, id, i.logicalID, gen, i.spec.view, h.op)
+	activation.controller = run
+	activation.scope = s
 	startCtx, cancel := context.WithCancel(ctx)
-	i.startCancel = cancel
+	activation.startCancel = cancel
 	defer cancel()
 	h.mu.Unlock()
 	err := invoke(func() error {
@@ -399,26 +339,23 @@ func (h *Host) activate(ctx context.Context, id string) (bool, error) {
 		if err != nil {
 			return fmt.Errorf("prepare plugin: %w", err)
 		}
-		return p.Start(startCtx, s)
+		return activatePlugin(startCtx, p, s)
 	})
+	close(activation.startDone)
 	h.mu.Lock()
-	i.startCancel = nil
+	activation.startCancel = nil
 	var interrupted bool
 	err, interrupted = run.Commit(startCtx, err, func() error {
 		return h.prerequisites(i, true)
 	}, func(values map[string]any) {
 		for name, value := range values {
-			h.services[i.spec.Outputs[name]] = serviceBinding{provider: id, generation: gen, value: value}
+			h.services[serviceAddress(name, i.spec.providedLabels[name])] = serviceBinding{provider: id, generation: gen, value: value}
 		}
-		i.state = Ready
+		h.setPhase(i, PhaseReady)
 	})
 	// Upstream freezing is a stop cause, not a new failure in this consumer.
-	if err != nil && !(interrupted && i.state != Failed) {
-		i.state = Failed
-		i.err = errors.Join(i.err, err)
-		if i.failurePhase == "" {
-			i.failurePhase = "start"
-		}
+	if err != nil && !(interrupted && !i.failed()) {
+		h.recordFailure(i, "activation", err)
 	}
 	h.mu.Unlock()
 	if err != nil {
@@ -427,33 +364,16 @@ func (h *Host) activate(ctx context.Context, id string) (bool, error) {
 	return true, nil
 }
 
-// Stop closes all active entrances and drains consumers before providers.
+// stopAll closes all active entrances and drains consumers before providers.
 // ctx only bounds this caller's wait. Cleanup keeps running after a timeout.
-func (h *Host) Stop(ctx context.Context) error { return h.stop(ctx, "") }
-
-// StopInstance stops the instance and its owned descendants. Live consumers
-// outside that subtree reject the operation without changing any scope.
-func (h *Host) StopInstance(ctx context.Context, id string) error {
-	if id == "" {
-		return errors.New("gordis: empty instance ID")
-	}
-	return h.stop(ctx, id)
-}
-
-func (h *Host) stop(ctx context.Context, id string) error {
+func (h *Host) stopAll(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	h.mu.Lock()
-	if id != "" {
-		if _, ok := h.instances[id]; !ok {
-			h.mu.Unlock()
-			return fmt.Errorf("gordis: unknown instance %q", id)
-		}
-	}
 	if h.op != nil {
 		op := h.op
-		if op.kind == "stop" && ((id == "" && len(op.targets) == len(h.instances)) || (id != "" && op.targets[id])) {
+		if op.kind == "stop" && len(op.targets) == len(h.instances) {
 			h.mu.Unlock()
 			return wait(ctx, op)
 		}
@@ -461,35 +381,13 @@ func (h *Host) stop(ctx context.Context, id string) error {
 		return ErrBusy
 	}
 	ids := append([]string(nil), h.order...)
-	if id != "" {
-		ids = h.owned(id)
-		selected := map[string]bool{}
-		for _, target := range ids {
-			selected[target] = true
-		}
-		var blockers []string
-		for _, candidate := range h.order {
-			i := h.instances[candidate]
-			if selected[candidate] || !h.retains(i) {
-				continue
-			}
-			for _, dep := range i.prereqs {
-				if selected[dep] {
-					blockers = append(blockers, candidate)
-					break
-				}
-			}
-		}
-		if len(blockers) > 0 {
-			h.mu.Unlock()
-			return fmt.Errorf("gordis: instance %s has active consumers: %s", id, strings.Join(blockers, ", "))
-		}
-	}
 	op := h.begin("stop", ids)
-	for _, target := range ids {
-		h.instances[target].spec.Disabled = true
-	}
 	h.revision++
+	for _, target := range ids {
+		i := h.instances[target]
+		i.desiredRevision = h.revision
+		h.notify(i)
+	}
 	h.freeze(ids)
 	h.mu.Unlock()
 	go func() { h.finish(op, h.stopIDs(ids)) }()
@@ -497,11 +395,11 @@ func (h *Host) stop(ctx context.Context, id string) error {
 }
 
 // retains is called under h.mu and includes callbacks with uncertain cleanup.
-func (h *Host) retains(i *instance) bool {
-	if i.scope == nil {
+func (h *Host) retains(i *instanceRecord) bool {
+	if i.activation == nil || i.activation.scope == nil {
 		return false
 	}
-	return i.lifecycle.Retains()
+	return i.activation.controller.Retains()
 }
 
 // dependents includes service consumers and children still owned by this
@@ -511,6 +409,10 @@ func (h *Host) dependents(id string) []string {
 	for _, candidate := range h.order {
 		i := h.instances[candidate]
 		if !h.retains(i) {
+			continue
+		}
+		if i.spec.parent == id {
+			out = append(out, candidate)
 			continue
 		}
 		for _, dep := range i.prereqs {
@@ -528,35 +430,51 @@ func (h *Host) dependents(id string) []string {
 func (h *Host) freeze(ids []string) {
 	for _, id := range ids {
 		i := h.instances[id]
-		s := i.scope
+		var s *Scope
+		if i.activation != nil {
+			s = i.activation.scope
+		}
 		if s == nil {
-			if i.state == Registered {
-				i.state = Stopped
-			}
 			continue
 		}
-		complete, _ := i.lifecycle.Result()
+		complete, _ := i.activation.controller.Result()
 		if complete {
 			continue
 		}
-		if i.state != Failed {
-			i.state = Stopping
-		}
-		i.lifecycle.Freeze()
-		if i.startCancel != nil {
-			i.startCancel()
+		h.setPhase(i, PhaseStopping)
+		i.activation.controller.Freeze()
+		if i.activation.startCancel != nil {
+			i.activation.startCancel()
 		}
 	}
 }
 
 func (h *Host) stopIDs(ids []string) error {
+	h.cleanupMu.Lock()
+	defer h.cleanupMu.Unlock()
 	var result error
 	h.mu.Lock()
 	h.freeze(ids)
 	h.mu.Unlock()
 	for n := len(ids) - 1; n >= 0; n-- {
 		h.mu.Lock()
-		run := h.instances[ids[n]].lifecycle
+		i := h.instances[ids[n]]
+		var started <-chan struct{}
+		if i != nil && i.activation != nil {
+			started = i.activation.startDone
+		}
+		h.mu.Unlock()
+		if started != nil {
+			<-started
+		}
+	}
+	for n := len(ids) - 1; n >= 0; n-- {
+		h.mu.Lock()
+		i := h.instances[ids[n]]
+		var run *lifecycle.Controller
+		if i.activation != nil {
+			run = i.activation.controller
+		}
 		h.mu.Unlock()
 		if run != nil {
 			run.Quiesce()
@@ -565,40 +483,37 @@ func (h *Host) stopIDs(ids []string) error {
 	for n := len(ids) - 1; n >= 0; n-- {
 		h.mu.Lock()
 		i := h.instances[ids[n]]
-		s := i.scope
+		var s *Scope
+		if i.activation != nil {
+			s = i.activation.scope
+		}
 		if s == nil {
 			h.mu.Unlock()
 			continue
 		}
-		if blockers := h.dependents(i.spec.ID); len(blockers) > 0 {
-			result = errors.Join(result, fmt.Errorf("gordis: cleanup %s blocked by %s", i.spec.ID, strings.Join(blockers, ", ")))
+		if blockers := h.dependents(ids[n]); len(blockers) > 0 {
+			result = errors.Join(result, fmt.Errorf("gordis: cleanup %s blocked by %s", ids[n], strings.Join(blockers, ", ")))
 			h.mu.Unlock()
 			continue
 		}
-		complete, priorErr := i.lifecycle.Result()
+		complete, priorErr := i.activation.controller.Result()
 		h.mu.Unlock()
 		if complete {
 			result = errors.Join(result, priorErr)
 			continue
 		}
-		err := i.lifecycle.Dispose()
+		err := i.activation.controller.Dispose()
 		h.mu.Lock()
 		if err != nil {
-			i.err = errors.Join(i.err, err)
-			if i.failurePhase == "" {
-				i.failurePhase = "cleanup"
-			}
-			i.state = Failed
-			result = errors.Join(result, fmt.Errorf("gordis: cleanup %s: %w", i.spec.ID, err))
+			result = errors.Join(result, fmt.Errorf("gordis: cleanup %s: %w", ids[n], err))
 		}
-		if i.state != Failed {
-			i.state = Stopped
-		}
+		h.finishGeneration(i, err)
 		// Failed cleanup keeps its service position reserved and pins providers.
 		if err == nil {
-			for _, slot := range i.spec.Outputs {
-				if binding, ok := h.services[slot]; ok && binding.provider == i.spec.ID && binding.generation == i.generation {
-					delete(h.services, slot)
+			for name, label := range i.spec.providedLabels {
+				address := serviceAddress(name, label)
+				if binding, ok := h.services[address]; ok && binding.provider == ids[n] && binding.generation == i.generation() {
+					delete(h.services, address)
 				}
 			}
 		}
@@ -610,42 +525,27 @@ func (h *Host) stopIDs(ids []string) error {
 func (h *Host) runtimeFailure(id string, gen uint64, err error) {
 	h.mu.Lock()
 	i := h.instances[id]
-	if i == nil || i.generation != gen {
+	if i == nil || i.generation() != gen {
 		h.mu.Unlock()
 		return
 	}
-	i.err = errors.Join(i.err, err)
-	i.state = Failed
-	if i.failurePhase == "" {
-		i.failurePhase = "runtime"
-	}
+	h.recordFailure(i, "runtime", err)
 	ids := h.affected(id)
 	for _, target := range ids {
 		c := h.instances[target]
 		if !h.retains(c) {
 			continue
 		}
-		if target != id && c.stopReason == "" {
-			c.stopReason = fmt.Sprintf("instance %s generation %d failed", id, gen)
+		activation := c.ensureActivation()
+		if target != id && activation.stopReason == "" {
+			activation.stopReason = fmt.Sprintf("instance %s generation %d failed", id, gen)
+			h.notify(c)
 		}
-		h.pending[target] = c.generation
+		h.pending[target] = c.generation()
 	}
 	h.freeze(ids)
 	h.scheduleFailures()
 	h.mu.Unlock()
-}
-
-func (h *Host) groupReady(i *instance) bool {
-	if i.state != Ready {
-		return false
-	}
-	for _, id := range i.children {
-		child := h.instances[id]
-		if !child.spec.Optional && (child.parentGeneration != i.generation || !h.groupReady(child)) {
-			return false
-		}
-	}
-	return true
 }
 
 // Snapshot returns stable copies in topological order, without configuration.
@@ -656,50 +556,63 @@ func (h *Host) Snapshot() []Snapshot {
 	for _, id := range h.order {
 		i := h.instances[id]
 		s := Snapshot{
-			ID:              id,
+			LocalID:         localID(i.spec),
+			QualifiedID:     id,
 			Plugin:          i.plugin.ID,
-			Generation:      i.generation,
-			State:           i.state,
+			Generation:      i.generation(),
+			Phase:           i.phase,
 			Dependencies:    append([]string{}, i.deps...),
 			BlockedBy:       []string{},
 			CleanupComplete: true,
 			CleanupPhase:    "none",
 			Residuals:       []string{},
 			Tasks:           []TaskSnapshot{},
-			FailurePhase:    i.failurePhase,
+			View:            i.spec.view.snapshot(),
 		}
-		s.Parent = i.spec.Parent
-		s.DesiredEnabled = !i.spec.Disabled
-		s.Revision = i.revision
-		s.Version = i.spec.Version
-		s.BlockedSlots = []string{}
-		for _, b := range i.bindings {
+		s.Parent = i.spec.parent
+		s.Revision = i.desiredRevision
+		s.BlockedLabels = []string{}
+		for _, b := range i.bindings() {
 			p := h.instances[b.Provider]
-			if p == nil || p.state != Ready {
-				s.BlockedSlots = append(s.BlockedSlots, b.Slot)
+			if p == nil || p.phase != PhaseReady {
+				s.BlockedLabels = append(s.BlockedLabels, b.Label)
 			}
 		}
-		s.ParentGeneration = i.parentGeneration
-		s.Optional = i.spec.Optional
-		s.GroupReady = h.groupReady(i)
-		s.StopReason = i.stopReason
-		s.Bindings = append([]BindingSnapshot{}, i.bindings...)
-		s.ProvidedSlots = make(map[string]string, len(i.spec.Outputs))
-		for key, slot := range i.spec.Outputs {
-			s.ProvidedSlots[key] = slot
+		if i.activation != nil {
+			s.ParentGeneration = i.activation.parentGeneration
+			s.StopReason = i.activation.stopReason
+			s.FailurePhase = i.activation.failurePhase
+			s.Outcome = i.activation.outcome
+			if i.activation.failure != nil {
+				s.Failure = i.activation.failure.Error()
+			}
+			if i.activation.cleanupError != nil {
+				s.CleanupError = i.activation.cleanupError.Error()
+			}
 		}
-		if i.err != nil {
-			s.LastError = i.err.Error()
+		s.Bindings = append([]BindingSnapshot{}, i.bindings()...)
+		s.ProvidedLabels = make(map[string]string, len(i.spec.providedLabels))
+		for key, label := range i.spec.providedLabels {
+			s.ProvidedLabels[key] = label
 		}
 		for _, dep := range i.prereqs {
-			if h.instances[dep].state != Ready {
+			if h.instances[dep].phase != PhaseReady {
 				s.BlockedBy = append(s.BlockedBy, dep)
 			}
 		}
-		if i.scope != nil {
-			local := i.lifecycle.Snapshot()
+		if i.spec.parent != "" {
+			parent := h.instances[i.spec.parent]
+			if parent == nil || (parent.phase != PhaseActivating && parent.phase != PhaseReady) {
+				s.BlockedBy = append(s.BlockedBy, i.spec.parent)
+			}
+		}
+		if i.activation != nil && i.activation.scope != nil {
+			local := i.activation.controller.Snapshot()
 			s.CleanupPhase, s.CleanupComplete = local.CleanupPhase, local.CleanupComplete
 			s.Leases, s.Residuals, s.Tasks = local.Leases, local.Residuals, local.Tasks
+			if local.CleanupError != nil {
+				s.CleanupError = local.CleanupError.Error()
+			}
 		}
 		if s.CleanupPhase != "active" && !s.CleanupComplete {
 			s.BlockedBy = append(s.BlockedBy, h.dependents(id)...)
@@ -707,4 +620,48 @@ func (h *Host) Snapshot() []Snapshot {
 		out = append(out, s)
 	}
 	return out
+}
+
+// Shutdown permanently closes the root Env and drains every mounted instance.
+// If the context expires, cleanup continues and a later Shutdown call can wait
+// for it to finish.
+func (h *Host) Shutdown(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	for {
+		h.mu.Lock()
+		if h.shutdown {
+			h.mu.Unlock()
+			return nil
+		}
+		h.closing = true
+		op := h.op
+		h.mu.Unlock()
+		if op == nil {
+			break
+		}
+		if err := wait(ctx, op); err != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
+	}
+	err := h.stopAll(ctx)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	h.mu.Lock()
+	h.shutdown = true
+	h.mu.Unlock()
+	return err
+}
+
+type activator interface {
+	Activate(context.Context, *Scope) error
+}
+
+func activatePlugin(ctx context.Context, p Plugin, scope *Scope) error {
+	if a, ok := p.(activator); ok {
+		return a.Activate(ctx, scope)
+	}
+	return fmt.Errorf("plugin %q does not implement Activate", p.Spec().ID)
 }

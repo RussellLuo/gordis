@@ -32,7 +32,7 @@ func (*greeterPlugin) Spec() gordis.PluginSpec {
 	}
 }
 
-func (*greeterPlugin) Start(_ context.Context, scope *gordis.Scope) error {
+func (*greeterPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
 	return gordis.Provide(scope, contract.GreeterKey, contract.Greeter(greeter{}))
 }
 

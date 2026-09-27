@@ -9,7 +9,7 @@ import (
 	"fmt"
 )
 
-// Protocol is the first public wire baseline for duplex RPC. Optional features
+// Protocol is the first public wire baseline for duplex RPC. Additional features
 // such as acknowledged lifecycle control are negotiated through contracts.
 const Protocol = "gordis.process/1"
 

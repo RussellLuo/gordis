@@ -4,25 +4,29 @@
 
 每次实例激活都会创建新的 Plugin 运行对象、generation 和 Scope。本代的服务绑定、任务、请求租约和清理操作都归这个 Scope 所有。
 
-可运行 `go run ./examples/lifecycle` 观察入口关闭、租约排空和资源释放顺序。基本对象关系见[核心概念](concepts.zh.md)。
+基本对象关系见[核心概念](concepts.zh.md)，公开挂载入口见[动态实例管理](dynamic.zh.md)。
 
 ## 启动
 
 ```text
-registered / pending / stopped
+pending / stopped
   → generation + 1
   → New → JSON 解码 → Spec 核对 → Validate
-  → 创建 Scope → Plugin.Start
+  → 创建 Scope → Plugin.Activate
   → 复核父代和服务绑定 → 发布暂存服务 → ready
 ```
 
-Host 按父级和提供者优先的拓扑顺序启动。`Start` 返回前，插件必须完成必要握手、提交声明的服务并达到可用状态；长期任务交给 `Scope.Go`。
+Host 先激活 provider，再激活 consumer。`Activate` 返回前，插件必须完成必要握手、提交声明的
+服务并达到可用状态；长期任务交给 `Scope.Go`。
 
-预检与激活使用相同的配置准备流程，但预检对象会被丢弃。`New` 和 `Validate` 不得创建资源，资源只在 `Start` 中创建并登记。
+预检与激活使用相同的配置准备流程，但预检对象会被丢弃。`New` 和 `Validate` 不得创建资源，资源只在 `Activate` 中创建并登记。
 
-启动失败时，Host 清理本次操作已经启动的实例。失败实例保留 `failed` 和原始错误，未发布的暂存服务不会被消费者看到。可选子树失败会清理该分支及受影响消费者，健康父组可以继续运行，但启动调用仍返回错误。
+激活失败时，Host 先保存原始错误，再让该 generation 经过 `stopping → stopped` 完成清理；
+未发布的暂存服务不会被消费者看到。child 失败会清理该分支及受影响的 Service consumers，
+但不改变 owner 的 readiness。`Instance.WaitReady` 只报告目标实例自身的失败；
+`Operation.WaitReady` 对本次 operation 的每个显式 target 使用相同判断。
 
-`Ready` 表示实例自身完成启动；`GroupReady` 还要求全部必需子实例就绪。启动 context 只控制启动调用，长期任务使用 `scope.Context()`。
+`Ready` 只表示实例自身完成启动。启动 context 只控制启动调用，长期任务使用 `scope.Context()`。
 
 ## 停止
 
@@ -50,11 +54,11 @@ defer release()
 
 ## 超时与残留
 
-停止 context 只限制调用方等待时间，不取消后台清理。任务、请求或回调未退出时，资源、父代和上游服务继续保留；框架不会强制终止 goroutine。
+Unmount 或 Shutdown 的 context 只限制调用方等待时间，不取消后台清理。任务、请求或回调未退出时，资源、父代和上游服务继续保留；框架不会强制终止 goroutine。
 
 清理回调返回错误或 panic 时，其余回调仍会继续。`cleanupComplete=true` 只表示所有步骤已经返回，不表示报错资源确实释放。存在 residuals 时，Host 保守地阻止同一位置启动新一代，避免覆盖仍可能存活的资源。
 
-重复停止等待同一个清理过程，不重复执行回调。不要在受管任务或清理回调中同步等待自己的 Stop，否则会形成自等待。
+观察同一个清理 operation 的多个调用方不会重复执行回调。不要在受管任务或清理回调中同步等待自己的 Unmount 或 Shutdown，否则会形成自等待。
 
 ## 运行失败
 
@@ -64,24 +68,29 @@ defer release()
 2. 取消仍在进行的启动。
 3. 通过串行生命周期执行器清理受影响实例。
 
-故障源保留 `failed`、`LastError` 和 `FailurePhase`。没有自身错误的连带实例清理后为 `stopped`，`StopReason` 指向故障源。允许等待的健康消费者可以回到 `pending`，依赖恢复后以新 generation 重新激活。独立实例不受影响。
+故障源的 `Phase` 仍沿正常清理路径推进，并独立保留 `Failure`、`FailurePhase` 和最终
+`Outcome=failed`。没有自身错误的连带实例清理后自动
+回到 `pending`，`StopReason` 指向故障源；依赖恢复后
+以新 generation 重新激活。独立实例不受影响。仅有 cleanup 错误时没有 `Failure`，最终
+`Outcome=incomplete`，错误由 `CleanupError` 和 `Residuals` 报告。
 
 未通过 `Scope.Go` 管理的 goroutine 不在故障捕获和清理范围内。
 
 ## 管理并发与诊断
 
-生命周期操作串行执行；冲突操作返回 `ErrBusy`，相同停止请求加入已有清理。用户回调在 Host 状态锁之外运行，可以读取 Snapshot，但不应在回调内重入并等待新的生命周期操作。
+生命周期操作串行执行；冲突操作返回 `ErrBusy`，Shutdown 会先等待已接受的 operation，再排空 Host。用户回调在 Host 状态锁之外运行，可以读取 Snapshot，但不应在回调内重入并等待新的生命周期操作。
 
 重点诊断字段：
 
 | 字段 | 含义 |
 | --- | --- |
-| `State` / `GroupReady` | 实例自身及必需子树是否可用 |
+| `Phase` | generation 生命周期位置及当前实例自身是否 Ready |
 | `Generation` / `ParentGeneration` | 当前运行代次及所属父代 |
-| `Bindings` / `ProvidedSlots` | 固定的输入提供者和输出槽位 |
-| `BlockedBy` / `BlockedSlots` | 未就绪或仍占用资源的依赖 |
+| `Bindings` / `ProvidedLabels` | 固定的输入提供者和已提供 Service 标签 |
+| `BlockedBy` / `BlockedLabels` | 未就绪或仍占用资源的依赖 |
 | `Tasks` / `Leases` | 尚未退出的任务和请求 |
-| `CleanupPhase` / `CleanupComplete` / `Residuals` | 清理进度与失败项 |
-| `LastError` / `FailurePhase` / `StopReason` | 故障源和连带停止原因 |
+| `Failure` / `FailurePhase` / `Outcome` | 原始运行故障、发生阶段和最终结果 |
+| `CleanupPhase` / `CleanupComplete` / `CleanupError` / `Residuals` | 清理进度、错误与失败项 |
+| `StopReason` | owner、依赖或显式 operation 传播的停止原因 |
 
 动态变更遵守同一套冻结、排空和残留规则，详见[动态管理](dynamic.zh.md)。`processbridge` 复用同一 Scope 生命周期，并通过 `gordis.process/1` 协调远端清理。

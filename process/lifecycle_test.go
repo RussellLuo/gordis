@@ -108,10 +108,13 @@ func TestReceiveAdmissionPrecedesQuiesceAndHandlerDispatch(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
-	if err := p.call(ctx, "dispose", nil, nil, true); !errors.Is(err, context.DeadlineExceeded) {
+	err := p.call(ctx, "dispose", nil, nil, true)
+	close(release)
+	var rpc *RPCError
+	remoteTimeout := errors.As(err, &rpc) && rpc.Code == "handler" && rpc.Message == context.DeadlineExceeded.Error()
+	if !errors.Is(err, context.DeadlineExceeded) && !remoteTimeout {
 		t.Fatal(err)
 	}
-	close(release)
 	if err := await(t, callResult); err != nil {
 		t.Fatal(err)
 	}

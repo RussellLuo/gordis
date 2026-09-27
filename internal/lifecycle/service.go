@@ -22,7 +22,7 @@ func NewServiceSpec(name string, typ reflect.Type) ServiceSpec {
 // ServiceType exposes declaration metadata only to framework packages.
 func ServiceType(s ServiceSpec) reflect.Type { return s.typ }
 
-// Provide stages a declared service until Start succeeds. A scope may provide
+// Provide stages a declared service until Activate succeeds. A scope may provide
 // each declared key once. Typed nils are rejected as well as nil interfaces.
 func Provide[T any](s *Scope, k ServiceSpec, value T) error {
 	s.mu.Lock()
@@ -70,4 +70,16 @@ func Get[T any](s *Scope, k ServiceSpec) (T, error) {
 		return zero, fmt.Errorf("gordis: service %q is unavailable or has the wrong type", k.name)
 	}
 	return v, nil
+}
+
+// Provides reports whether the Ready generation declared and committed the
+// exact service contract. It is read-only support for optional routing modules.
+func Provides(s *Scope, k ServiceSpec) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.published || s.provides[k.name] != k.typ {
+		return false
+	}
+	_, ok := s.staged[k.name]
+	return ok
 }

@@ -36,7 +36,7 @@ func (p *samplerPlugin) Validate() error {
 	return nil
 }
 
-func (p *samplerPlugin) Start(_ context.Context, scope *gordis.Scope) error {
+func (p *samplerPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /sample", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {

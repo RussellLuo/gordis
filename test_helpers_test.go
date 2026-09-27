@@ -14,7 +14,7 @@ var valueKey = gordis.NewKey[*int]("test.value")
 type testPlugin struct {
 	ID                 string
 	Requires, Provides []gordis.ServiceSpec
-	StartFunc          func(context.Context, *gordis.Scope) error
+	ActivateFunc       func(context.Context, *gordis.Scope) error
 	NewFunc            func() gordis.Plugin
 	ValidateFunc       func() error
 }
@@ -40,29 +40,15 @@ func (p *testPlugin) Validate() error {
 	return nil
 }
 
-func (p *testPlugin) Start(ctx context.Context, scope *gordis.Scope) error {
-	if p.StartFunc == nil {
+func (p *testPlugin) Activate(ctx context.Context, scope *gordis.Scope) error {
+	if p.ActivateFunc == nil {
 		return nil
 	}
-	return p.StartFunc(ctx, scope)
+	return p.ActivateFunc(ctx, scope)
 }
 
 func definition(id string, fn func(context.Context, *gordis.Scope) error) *testPlugin {
-	return &testPlugin{ID: id, StartFunc: fn}
-}
-
-func host(t *testing.T, plugins ...gordis.Plugin) *gordis.Host {
-	t.Helper()
-	specs := []gordis.InstanceSpec{}
-	for _, plugin := range plugins {
-		id := plugin.Spec().ID
-		specs = append(specs, gordis.InstanceSpec{ID: id, Plugin: id})
-	}
-	h, err := gordis.NewHost(plugins, specs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return h
+	return &testPlugin{ID: id, ActivateFunc: fn}
 }
 
 func deadline(t *testing.T) context.Context {
@@ -93,7 +79,7 @@ func recv[T any](t *testing.T, ch <-chan T) T {
 
 func find(h *gordis.Host, id string) gordis.Snapshot {
 	for _, s := range h.Snapshot() {
-		if s.ID == id {
+		if s.QualifiedID == id {
 			return s
 		}
 	}

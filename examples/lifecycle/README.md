@@ -32,8 +32,9 @@ stop complete
   after shutdown begins.
 - `Defer` releases the final resource after tasks and leases have drained.
 
-The example holds a lease while calling `Host.Stop`, verifies that new work is
-rejected, and then releases the request so shutdown can finish.
+The example holds a lease while calling `Instance.Unmount`, verifies that new
+work is rejected, and then releases the request so instance cleanup can
+finish. `Host.Shutdown` remains the final Host-wide teardown.
 
 See [main.go](main.go) for the complete program and
 [Lifecycle](../../docs/lifecycle.md) for the full shutdown sequence.

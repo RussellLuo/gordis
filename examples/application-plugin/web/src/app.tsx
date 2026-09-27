@@ -60,7 +60,10 @@ function Extension({ plugin, contribution, instances, instance }: {
     : instance ? <contribution.component instance={instance} /> : null;
   return <Boundary title={contribution.title}><PluginProvider value={value}>{content}</PluginProvider></Boundary>;
 }
-const stateNames: Record<string, string> = { ready: '运行中', stopped: '已停用', starting: '启动中', stopping: '停止中', failed: '失败', registered: '未启动' };
+const phaseNames: Record<string, string> = {
+  pending: '等待依赖', activating: '激活中', ready: '运行中', stopping: '停止中', stopped: '已停止',
+};
+const displayPhase = (instance: Instance) => instance.mounted ? (phaseNames[instance.phase] ?? instance.phase) : '已停用';
 
 function App() {
   const [catalog, setCatalog] = useState<Catalog>(emptyCatalog);
@@ -106,13 +109,13 @@ function App() {
     if (connected && pathname !== base.pathname && !page) { history.replaceState(null, '', base.pathname); setPathname(base.pathname); }
   }, [connected, pathname, page]);
   const selected = catalog.instances.find(i => i.id === selectedID) ?? catalog.instances[0];
-  const panels = selected?.state === 'ready' ? loaded.filter(p => p.manifest.id === selected.packageID)
+  const panels = selected?.mounted && selected.phase === 'ready' ? loaded.filter(p => p.manifest.id === selected.packageID)
     .flatMap(plugin => plugin.contributions.filter(c => c.kind === 'instance-panel').map(contribution => ({ plugin, contribution }))) : [];
   const navigate = (href: string) => { history.pushState(null, '', href); setPathname(href); };
   async function toggle(instance: Instance) {
     if (changing) return;
     setChanging(true); setNotice('');
-    try { await request(`api/plugins/${instance.id}/${instance.state === 'ready' ? 'disable' : 'enable'}`, { method: 'POST' }); }
+    try { await request(`api/plugins/${instance.id}/${instance.mounted ? 'disable' : 'enable'}`, { method: 'POST' }); }
     catch (error) { setNotice(message(error)); }
     finally { setChanging(false); }
   }
@@ -158,14 +161,14 @@ function App() {
           </section>;
         })}
         {!catalog.available.length && <p className="empty-state">尚无可用插件包。构建完成后会自动出现在这里。</p>}
-        <div className="section-heading"><h2>后端实例</h2><span className="muted small">{catalog.instances.filter(i => i.state === 'ready').length} / {catalog.instances.length} 运行中</span></div>
+        <div className="section-heading"><h2>后端实例</h2><span className="muted small">{catalog.instances.filter(i => i.mounted && i.phase === 'ready').length} / {catalog.instances.length} 运行中</span></div>
         <div className="table-scroll"><table><thead><tr><th>实例</th><th>版本 / 进程</th><th>状态</th><th>激活代次</th><th>操作</th></tr></thead><tbody>
           {catalog.instances.map(instance => <tr key={instance.id}>
             <td><button className="instance-link" onClick={() => setSelectedID(instance.id)} aria-label={`查看 ${instance.id}`}>{instance.title}</button><small>{instance.id}</small></td>
-            <td>{instance.version}<small>{instance.pid ? `PID ${instance.pid}` : '进程未运行'}</small></td><td title={instance.lastError}><span className={`state ${instance.state === 'ready' ? 'ready' : ''}`}>{stateNames[instance.state] ?? instance.state}</span></td>
+            <td>{instance.version}<small>{instance.pid ? `PID ${instance.pid}` : '进程未运行'}</small></td><td title={instance.failure ?? instance.cleanupError}><span className={`state ${instance.mounted && instance.phase === 'ready' ? 'ready' : ''}`}>{displayPhase(instance)}</span></td>
             <td className="mono">{String(instance.generation).padStart(2, '0')}</td>
-            <td><button disabled={busy || ['starting', 'stopping'].includes(instance.state)} aria-label={`${instance.state === 'ready' ? '停用' : '启用'} ${instance.id}`}
-              onClick={() => void toggle(instance)}>{instance.state === 'ready' ? '停用' : '启用'}</button></td>
+            <td><button disabled={busy || ['activating', 'stopping'].includes(instance.phase)} aria-label={`${instance.mounted ? '停用' : '启用'} ${instance.id}`}
+              onClick={() => void toggle(instance)}>{instance.mounted ? '停用' : '启用'}</button></td>
           </tr>)}
         </tbody></table></div>
         {!catalog.instances.length && <p className="empty-state">选择插件包及版本，启动包中声明的实例。</p>}

@@ -15,7 +15,7 @@ function SamplerReading({ instance }: { instance: Instance }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const controller = useRef<AbortController | null>(null);
-  const ready = instance.state === 'ready' && instance.groupReady;
+  const ready = instance.mounted && instance.phase === 'ready';
   const latest = readings[readings.length - 1];
   async function sample(sequence: number) {
     controller.current?.abort();

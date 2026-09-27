@@ -9,8 +9,9 @@ export interface PackageManifest {
   activation: 'backend'; entry: string; styles: string[];
 }
 export interface Instance {
-  id: string; packageID: string; title: string; state: string;
-  generation: number; groupReady: boolean; lastError?: string;
+  id: string; packageID: string; title: string; version: string; mounted: boolean;
+  phase: string; generation: number;
+  failure?: string; cleanupError?: string;
 }
 export interface Catalog { instances: Instance[]; packages: PackageManifest[] }
 export type Dispose = () => void;

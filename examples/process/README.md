@@ -1,8 +1,7 @@
 # Process plugin
 
-This example starts an empty Host, attaches an independently built Greeter
-plugin with `Preview` and `Apply`, calls its typed service, and reaps the child
-process during shutdown.
+This example starts an empty Host, mounts an independently built Greeter
+plugin, calls its typed service, and reaps the child process during shutdown.
 
 The Host imports only the shared contract and wire adapter. The Greeter
 implementation is not linked into the Host binary.
@@ -21,17 +20,20 @@ Expected output, with different PIDs on each run:
 
 ```text
 host PID <host-pid> started without a plugin
-plugin PID <plugin-pid>: Hello, Gordis!
+plugin PID <plugin-pid> started
+Hello, Gordis!
 plugin process reaped
 ```
 
 ## How it works
 
 The Host registers a generic `processbridge.Adapter` under the logical plugin
-ID `greeter`. When the dynamic change is applied, the adapter starts the child
-process and exposes its RPC binding as the typed `Greeter` service. Consumers
+ID `greeter`. The root Env mounts the provider and consumer with the same
+`MountReady` API used by Local plugins. The adapter starts the child process
+and exposes its RPC binding as the typed `Greeter` service. Consumers
 depend only on `GreeterKey`, so they do not need to know whether the provider is
-local or runs in another process.
+local or runs in another process. The consumer calls and prints the greeting
+directly from its `Activate` method.
 
 Key files:
 

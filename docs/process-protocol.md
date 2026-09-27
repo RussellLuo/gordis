@@ -31,11 +31,9 @@ err := process.Serve(ctx, os.Stdin, os.Stdout, identity, process.Limits{}, proce
 
 `process.Caller.Call(ctx, method, params, result)` is safe for concurrent use. Initialization may call the Host, and a handler may make a nested call to its peer, but applications must avoid recursive calls and wait cycles.
 
-Runnable examples:
-
-- [process](../examples/process/README.md): expose a typed process service to a Gordis consumer.
-- [duplex](../examples/duplex/README.md): one nested Host → plugin → Host call.
-- [application-plugin](../examples/application-plugin/README.md): a remote Plugin owns its data plane and contributes UI to the Host.
+Executable coverage lives in [process tests](../process) for protocol and nested
+duplex calls, plus [processbridge tests](../processbridge) for typed Service,
+event federation, Env integration, lifecycle, crash, and cleanup behavior.
 
 ## Wire protocol
 
@@ -66,9 +64,51 @@ Defaults are 64 KiB per message, 16 pending outbound calls, 16 active inbound ha
 - The Host-side `Adapter` obtains declared dependencies, starts the process, and publishes a typed proxy under the same Key.
 - Child-side `Serve` creates the generation's Scope, injects dependency proxies, and exports the services provided by the business Plugin.
 
-The business Plugin continues to use the ordinary `Spec`, `Start`, `Get`, and `Provide` APIs. A consumer cannot tell whether it received a local object or a process proxy. Wire bindings remain explicit because a service name alone cannot define RPC serialization and failure semantics.
+The business Plugin continues to use the ordinary `Spec`, `Activate`, `Get`, and `Provide` APIs. A consumer cannot tell whether it received a local object or a process proxy. Wire bindings remain explicit because a service name alone cannot define RPC serialization and failure semantics.
 
 The Adapter ID is the logical plugin type ID and should not encode an execution suffix such as `-process`. The Host assigns the instance ID and generation; the child must not create another Host or renumber the generation.
+
+### Event federation
+
+Event wires are registered only at a selected Process boundary. Local
+Topics/Hooks and business Plugins do not carry codecs:
+
+```go
+var Notice = events.NewTopic[NoticePayload]("app.notice/1")
+
+var NoticeWire = processbridge.BindTopic(
+    Notice,
+    processbridge.JSONEventCodec[NoticePayload]("app.notice.json/1"),
+    processbridge.EventPublish|processbridge.EventSubscribe,
+)
+```
+
+The Host's `processbridge.Adapter.Events` and the child's
+`processbridge.ServeOptions.Events` must register the same set. `BindHook`
+registers separate input and output codecs; a custom `EventCodec` may replace
+JSON. A codec ID identifies its schema and encoding, so incompatible changes
+require a new ID. The hello handshake checks both per-wire fingerprints and a
+complete registry fingerprint. Missing or extra entries, direction changes,
+and schema mismatches therefore fail before the remote business `Activate`.
+
+The remote Plugin still declares `events.BusKey.Spec()` and uses the ordinary
+`events.Bind(scope).On/Handle/Use` and `Publish/Serial/Waterfall` APIs. The
+bridge maps each remote subscription to a proxy handler owned by the current
+Adapter Scope in the Host Bus. Local-to-Process, Process-to-Local, and
+Process-to-Process paths therefore share Topic/source-Service Views,
+priority/registration ordering, Once/Global, Ready admission, and bounded
+parallelism with Local-to-Local delivery. A remote `AfterReady` publication
+waits until the Host generation is Ready.
+
+Subscription IDs, callback tokens, and messages are scoped to the current
+session, instance, and generation. A waterfall `next` token may be called once
+and only before the current middleware returns; a later call returns
+`events.ErrNextExpired`. Timeouts, cancellation, handler errors, and
+backpressure are returned without automatic retries. On disconnect or Scope
+stop, the Host removes all proxy subscriptions for that generation before
+completing process cleanup. There is
+no instance-control wire, so remote `Scope.Env().Mount` returns
+`gordis.ErrEnvUnavailable`.
 
 ## Lifecycle and cleanup
 

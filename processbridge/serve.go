@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/RussellLuo/gordis"
+	"github.com/RussellLuo/gordis/events"
 	internalplugin "github.com/RussellLuo/gordis/internal/plugin"
 	"github.com/RussellLuo/gordis/process"
 )
@@ -17,22 +18,34 @@ type ServeOptions struct {
 	Limits             process.Limits
 	Plugin             gordis.Plugin
 	Requires, Provides []Binding
+	Events             []EventBinding
 }
 
-// Serve runs one Plugin/Start with the Host's immutable instance and
+// Serve runs one Plugin/Activate with the Host's immutable instance and
 // generation. It never creates a child Host. Only declared bindings are exposed.
 func Serve(ctx context.Context, in io.ReadCloser, out io.WriteCloser, o ServeOptions) error {
 	spec, err := internalplugin.Inspect(o.Plugin)
 	if err != nil {
 		return err
 	}
-	if err := match(spec.Requires, o.Requires); err != nil {
+	requires, err := specs(o.Requires)
+	if err != nil {
+		return err
+	}
+	requires, err = eventBusRequirement(requires, o.Events)
+	if err != nil {
+		return err
+	}
+	if err := matchSpecs(spec.Requires, requires); err != nil {
 		return err
 	}
 	if err := match(spec.Provides, o.Provides); err != nil {
 		return err
 	}
-	o.Identity = identityWithBindings(o.Identity, o.Requires, o.Provides)
+	if _, err := eventBindings(o.Events); err != nil {
+		return err
+	}
+	o.Identity = identityWithBindings(o.Identity, o.Requires, o.Provides, o.Events)
 	var r *pluginRun
 	var handler process.CallHandler
 	var notify sync.Once
@@ -41,6 +54,13 @@ func Serve(ctx context.Context, in io.ReadCloser, out io.WriteCloser, o ServeOpt
 			bindings := map[string]any{}
 			for _, b := range o.Requires {
 				bindings[b.spec.Name()] = b.client(boundCaller{peer, b.spec.Name()})
+			}
+			remoteEvents, err := newRemoteEventTransport(peer, o.Events)
+			if err != nil {
+				return err
+			}
+			if len(o.Events) != 0 {
+				bindings[events.BusKey.Name()] = events.Bus(remoteEvents.endpoint)
 			}
 			r = newPluginRun(spec, s.Instance, s.Generation, bindings, func(err error) {
 				// Do not wait for RPC while the failing task still owns a lifecycle ref.
@@ -59,7 +79,7 @@ func Serve(ctx context.Context, in io.ReadCloser, out io.WriteCloser, o ServeOpt
 			for _, b := range o.Provides {
 				handlers[b.spec.Name()] = b.handler(r.values[b.spec.Name()])
 			}
-			handler = router(handlers)
+			handler = bridgeHandler(handlers, remoteEvents.handle)
 			return nil
 		},
 		Admit: func(string) (func(), error) { return r.controller.Scope().Acquire() },

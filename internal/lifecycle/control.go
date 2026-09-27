@@ -7,7 +7,10 @@ import (
 	"reflect"
 )
 
-var ErrClosed = errors.New("gordis: scope is closed")
+var (
+	ErrClosed   = errors.New("gordis: scope is closed")
+	ErrNotReady = errors.New("gordis: instance is not ready")
+)
 
 // Controller is the framework's capability to drive one Scope. It is never
 // given to plugins. The owner serializes Quiesce and Dispose and freezes all
@@ -65,7 +68,6 @@ func (c *Controller) Commit(
 ) (err error, interrupted bool) {
 	s := c.scope
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	err = errors.Join(startErr, s.taskErr)
 	interrupted = s.closed && (err == nil || errors.Is(err, ctx.Err()) || errors.Is(err, ErrClosed))
 	if err == nil {
@@ -88,6 +90,7 @@ func (c *Controller) Commit(
 			}
 		}
 	}
+	var ready []readyTask
 	if err == nil {
 		values := make(map[string]any, len(s.staged))
 		for name, value := range s.staged {
@@ -95,6 +98,11 @@ func (c *Controller) Commit(
 		}
 		publish(values)
 		s.published = true
+		ready = s.startAfterReadyLocked()
+	}
+	s.mu.Unlock()
+	for _, task := range ready {
+		go s.runTask(task.name, task.fn)
 	}
 	return err, interrupted
 }

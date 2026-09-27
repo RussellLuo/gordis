@@ -2,72 +2,132 @@
 
 [English](dynamic.md) | 中文
 
-`Preview` / `Apply` 可以在同一个 Host 中新增、更新、停用或删除实例。插件类型目录仍在 `NewHost` 时固定；动态变化的是实例图和配置。
+`NewHost` 固定静态链接的 Plugin 类型目录，并创建一个空的 synthetic root。应用通过
+`host.Env()` 挂载全部实例；`NewHost` 只接收类型目录。
 
-运行 `go run ./examples/dynamic` 可以观察消费者 `pending → ready → pending → ready`，以及恢复后的新 generation。
-
-## 提交变更
+## 挂载与等待
 
 ```go
-plan, err := host.Preview(gordis.Change{
-    Upsert: []gordis.InstanceSpec{{
-        ID: "collector-alpha", Plugin: "collector",
-        AllowPending: true,
-        Inputs: map[string]string{SamplerKey.Name(): "sampler.alpha"},
-    }},
-})
+host, err := gordis.NewHost(plugins)
 if err != nil {
     return err
 }
-operationID, err := host.Apply(ctx, plan)
+defer host.Shutdown(context.Background())
+
+collector, err := host.Env().Mount(ctx, gordis.InstanceSpec{
+    ID: "collector", Plugin: "collector", Config: collectorConfig,
+})
+if err != nil {
+    return err // 预检失败，没有提交
+}
+if err := collector.WaitReady(ctx); err != nil {
+    return err
+}
 ```
 
-`Upsert` 是完整实例描述，不做字段合并。同一描述再次提交表示显式重建或重试。`Disabled` 表示期望状态；依赖恢复不会自动启用被停用的实例。
+`Mount` 在 desired instance 提交后返回，不等待 activation。`MountReady` 是
+`Mount + WaitReady` 的便利入口；若等待超时或 activation 失败，它会返回非 nil 的已提交
+Instance 和对应错误，不会暗中 Unmount。
 
-| API | 作用 |
+| API | 语义 |
 | --- | --- |
-| `Preview(Change)` | 复制配置、校验候选图并计算影响范围，不改变运行状态 |
-| `Apply(ctx, plan)` | 拒绝过期计划，排空旧代并提交候选图 |
-| `Operation(id)` | 查看阶段、影响范围、目标版本、错误和恢复关联 |
-| `WaitOperation(ctx, id)` | 等待操作结束；超时不终止后台清理 |
-| `WaitReady(ctx, id)` | 等待实例 ready 或自身 failed |
-| `Restore(ctx, id)` | 用完整旧描述提交一次新的恢复操作 |
+| `Env.Mount` | 校验并提交 root 实例，随后异步收敛 |
+| `Env.MountReady` | 挂载并等待该次精确 desired revision 自身 Ready |
+| `Instance.Update` | 提交新 JSON 配置并替换 generation |
+| `Instance.Restart` | 保持配置不变并替换 generation |
+| `Instance.WaitReady` | 等待调用开始时固定的 revision |
+| `Instance.Unmount` | 删除 desired state，并在调用方 context 内等待清理完成 |
+| `Host.Shutdown` | 永久关闭 root Env 并排空全部实例 |
 
-计划绑定 Host 和图修订号；期间发生其他管理变更会返回 `ErrStale`。管理操作串行执行，重叠请求返回 `ErrBusy`。
+## Pending 与依赖恢复
 
-## Pending 与删除提供者
+required Service 暂缺是正常的动态状态。consumer 提交后无需实例级开关，自动进入
+`pending`。匹配的 provider 挂载后，Host 自动激活 consumer。provider 运行失败时，
+健康 consumer 会先冻结、排空并回到 `pending`；应用显式 Update 或 Restart provider 后，
+consumer 以新 generation 恢复。
 
-静态 `NewHost` 要求完整依赖。动态图中，消费者只有显式设置 `AllowPending` 才能等待缺失服务。
+Plugin 自身 activation failure 不同：Gordis 保存原始错误并清理该 generation，但不会自动
+重试同一个逻辑实例；应用必须显式调用 `Update` 或 `Restart`。
 
-删除仍有消费者的提供者时，还必须允许这些消费者等待：
+## 隔离的 Service View
+
+零值 View 使用 Service Key 名称作为默认标签。`Env.Isolate` 不修改原 Env，而是为一个
+target 派生新标签：
 
 ```go
-plan, err := host.Preview(gordis.Change{
-    Remove: []string{"sampler-alpha"},
-    AllowWaitingConsumers: true,
+tenantA := host.Env().Isolate(StoreKey, "tenant-a")
+
+reader, err := tenantA.Mount(ctx, gordis.InstanceSpec{
+    ID: "reader", Plugin: "reader",
+})
+_, err = tenantA.Mount(ctx, gordis.InstanceSpec{
+    ID: "store", Plugin: "store",
 })
 ```
 
-Host 先冻结并排空消费者，再撤销提供者。健康消费者进入 `pending`，`BlockedSlots` 指明缺失槽位；新提供者出现后，Host 重新校验图并以新 generation 激活消费者。
+两个实例都在 `(StoreKey.Name(), "tenant-a")` 解析 `StoreKey`。默认 provider 不会满足隔离的
+reader，不同标签下的 provider 也不冲突；consumer 一代运行期间的 provider 与 generation
+绑定保持固定。
 
-`Optional` 只影响父组就绪，不等于允许缺失依赖。缺少父级、契约冲突、重复提供槽位或所有权/依赖成环都会在 Preview 阶段拒绝。
+## 提交与句柄规则
 
-## 提交、就绪与恢复
+配置会在操作接受前完成解码和校验。context 在接受前取消时不提交任何内容；操作一旦接受，
+root 入口会等到提交结果明确，不会返回“可能已提交”的模糊超时。
 
-操作按以下阶段推进：
+`WaitReady` 固定逻辑身份与调用时的精确 desired revision，只观察该实例自身，不观察其
+ownership descendants。后续 Update 或 Restart 使旧等待
+返回 `ErrStale`；Unmount 返回 `ErrClosed`。即使以后复用相同 local ID，旧句柄也永远不会
+指向新实例。
 
-```text
-draining → starting → completed / failed
+`Instance.Unmount` 的 context 只限制调用方等待；操作一旦接受，后台清理仍会完成。需要在
+超时后继续观察同一次清理时，应使用 `ChangeSet` 并保留返回的 `Operation`。
+
+Unmount provider 不会删除仍然存活的 consumer。required binding 因此无法解析时，这些
+consumer 会先排空再进入 `Pending`，与 provider 运行时失败后的行为一致；重新挂载匹配的
+provider 后，Host 会再次自动收敛它们。
+
+## 批量变更与恢复
+
+Loader 和其他管理面通过 `ChangeSet.Apply → Operation` 提交跨实例变更：
+
+```go
+changes := host.Changes()
+changes.Mount(tenantEnv, gordis.InstanceSpec{
+    ID: "store", Plugin: "store", Config: storeConfig,
+})
+changes.Update(reader, readerConfig)
+
+operation, err := changes.Apply(ctx)
+if err != nil {
+    // accepted operation 即使因 ctx 超时返回错误，operation 仍可用于观察。
+    return err
+}
+mounted := operation.Mounted() // 按 ChangeSet.Mount 的登记顺序
+if err := operation.WaitReady(ctx); err != nil {
+    return err
+}
 ```
 
-`Committed` 表示候选描述是否已经成为当前图；`completed` 可以包含显式 pending，不代表所有实例 ready。因此管理层应先等待操作，再按需要等待具体实例就绪。
+`ChangeSet.Apply` 会在冻结任何现有 scope 前校验完整候选图，并以当前 Host revision、
+Instance logical identity 和 owner generation 守护提交。这些检查是框架不变量，不是要求
+人工授权的步骤。nil error 只表示候选图已提交；activation 可能仍在进行，也可能因缺少
+required binding 正常停在 Pending。`Operation.Wait` 观察本次收敛是否结束，
+`Operation.WaitReady` 则等待本次 operation 显式固定的全部 exact revisions Ready，不递归
+等待它们的 children。
 
-变更使用旧图和新图共同计算影响闭包。整个闭包在第一个停止回调前冻结，未受影响实例保留原 Scope 和 generation。旧任务、租约或 residuals 尚未清理时，不能覆盖服务槽位或启动新代。
+影响闭包仍可通过 `Operation.Snapshot` 用于诊断和应用级审计。若应用确实需要审批或 dry-run
+策略，可在 Gordis 之上封装该工作流，而无需让每个本地变更都承担这套交互。
 
-`Restore` 不是事务回滚，而是使用旧的完整描述发起一次新变更。它可能再次失败，成功后也会获得新的 generation。后续管理变更会使旧恢复记录过期。
+同一 ChangeSet 中对旧 Instance 执行 `Unmount`，再从相同 owner Env `Mount` 相同 local ID，
+表示原子替换；新实例获得新的 logical identity，旧句柄永久关闭。`Operation.Restore` 是一次
+新的显式 operation：只有 Host revision 和 owner generation 仍匹配时才恢复本次操作直接
+变更的旧描述，不会覆盖更晚的 Loader 或用户变更。因 owner 停止而被递归移除的 descendant
+属于旧 generation，不会被 Restore 直接复活；Plugin 应从新 `Scope.Env()` 重新声明自己的
+child，外部 Loader 则在 restored parent Ready 后用新的 `parent.Env()` 重新 reconcile。
 
-## 边界
+Loader 自己保存 entry、owner Env 和 Instance；group/include/overlay/package/disabled 都是
+上层配置策略。disabled entry 翻译为 `Unmount`，重新启用时重新 `Mount`。核心不读取配置
+文件，也不维护第二棵 Loader runtime graph。
 
-当前实例图、操作记录和 generation 历史只保存在内存中。没有持久化、无限重试、原地热配置、并行新旧两代、业务副作用回滚或强制释放 Go goroutine。
-
-实现与行为测试见 [dynamic.go](../dynamic.go) 和 [dynamic_test.go](../dynamic_test.go)；资源清理规则见[生命周期](lifecycle.zh.md)。
+Snapshot 提供 local/qualified identity、phase、generation、固定 binding、阻塞标签、
+failure/outcome 与 cleanup 状态。资源顺序和 residual 规则见[生命周期](lifecycle.zh.md)。

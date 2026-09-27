@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 
@@ -23,8 +24,11 @@ type backendConfig struct {
 }
 type instanceView struct {
 	gordis.Snapshot
+	ID        string `json:"id"`
 	PackageID string `json:"packageID"`
 	Title     string `json:"title"`
+	Version   string `json:"version"`
+	Mounted   bool   `json:"mounted"`
 	PID       int    `json:"pid"`
 }
 type catalog struct {
@@ -41,10 +45,21 @@ type app struct {
 	mu                     sync.Mutex
 	control                sync.Mutex
 	entries                map[string]*endpoint
+	managed                map[string]*managedInstance
 	// Retain immutable browser files for old in-flight imports until host exit.
 	bundles       map[string]*bundle
 	clients       []*process.Client
-	lastOperation uint64
+	lastOperation *gordis.Operation
+}
+
+// managedInstance is Loader state, not Gordis runtime state. Package/version,
+// enabled state, and retained Instance handles deliberately stay in the
+// application control plane.
+type managedInstance struct {
+	id, packageID, title, version string
+	backendConfig, gatewayConfig  json.RawMessage
+	bundle                        *bundle
+	backend                       *gordis.Instance
 }
 
 func (a *app) resolveBackend(raw json.RawMessage) (process.Options, error) {
@@ -76,6 +91,7 @@ func newApp(base, assets, packages string) (*app, error) {
 		assets:   assets,
 		packages: packages,
 		entries:  map[string]*endpoint{},
+		managed:  map[string]*managedInstance{},
 		bundles:  map[string]*bundle{},
 	}
 	backend, err := (processbridge.Adapter{
@@ -91,11 +107,8 @@ func newApp(base, assets, packages string) (*app, error) {
 	if err != nil {
 		return nil, err
 	}
-	a.host, err = gordis.NewHost([]gordis.Plugin{backend, &gatewayPlugin{app: a}}, nil)
+	a.host, err = gordis.NewHost([]gordis.Plugin{backend, &gatewayPlugin{app: a}})
 	if err != nil {
-		return nil, err
-	}
-	if err = a.host.Start(context.Background()); err != nil {
 		return nil, err
 	}
 	return a, nil
@@ -110,31 +123,31 @@ func (a *app) catalog() catalog {
 		HostIdentity: fmt.Sprintf("%p", a.host),
 	}
 	seen := map[string]bool{}
-	snapshots := a.host.Snapshot()
+	snapshots := map[string]gordis.Snapshot{}
+	for _, snapshot := range a.host.Snapshot() {
+		snapshots[snapshot.QualifiedID] = snapshot
+	}
 	diagnostics := a.diagnostics()
 	a.mu.Lock()
-	for _, s := range snapshots {
-		if s.Plugin != appplugin.BackendPluginID {
-			continue
-		}
-		packageID, localID, _ := strings.Cut(s.ID, "--")
-		v := instanceView{Snapshot: s, PackageID: packageID, Title: localID}
-		for _, b := range a.bundles {
-			if b.manifest.ID == packageID && b.manifest.Version == s.Version {
-				for _, instance := range b.manifest.Instances {
-					if instance.ID == localID {
-						v.Title = instance.Title
-					}
-				}
-			}
+	ids := make([]string, 0, len(a.managed))
+	for id := range a.managed {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		managed := a.managed[id]
+		snapshot := snapshots[id]
+		v := instanceView{
+			Snapshot: snapshot, ID: id, PackageID: managed.packageID,
+			Title: managed.title, Version: managed.version, Mounted: managed.backend != nil,
 		}
 		for _, diagnostic := range diagnostics {
-			if diagnostic.Instance == s.ID && diagnostic.Generation == s.Generation {
+			if diagnostic.Instance == id && diagnostic.Generation == snapshot.Generation {
 				v.PID = diagnostic.PID
 			}
 		}
-		if e := a.entries[s.ID]; e != nil && s.State == gordis.Ready &&
-			s.GroupReady && s.Generation == e.generation {
+		if e := a.entries[id]; e != nil && snapshot.Phase == gordis.PhaseReady &&
+			snapshot.Generation == e.generation {
 			if !seen[e.bundle.digest] {
 				out.Packages = append(out.Packages, e.bundle.view(a.base))
 				seen[e.bundle.digest] = true
@@ -142,12 +155,11 @@ func (a *app) catalog() catalog {
 		}
 		out.Instances = append(out.Instances, v)
 	}
-	id := a.lastOperation
+	lastOperation := a.lastOperation
 	a.mu.Unlock()
-	if id != 0 {
-		if o, ok := a.host.Operation(id); ok {
-			out.Operation = &o
-		}
+	if lastOperation != nil {
+		snapshot := lastOperation.Snapshot()
+		out.Operation = &snapshot
 	}
 	// Discover packages built after startup without importing any plugin code.
 	dirs, _ := os.ReadDir(a.packages)
@@ -199,65 +211,210 @@ func (a *app) install(ctx context.Context, packageID, version string) (uint64, e
 	if b.manifest.ID != packageID || b.manifest.Version != version {
 		return 0, fmt.Errorf("package directory/identity mismatch")
 	}
-	disabled := map[string]bool{}
-	for _, s := range a.host.Snapshot() {
-		if s.Plugin == appplugin.BackendPluginID {
-			disabled[s.ID] = !s.DesiredEnabled
+	a.mu.Lock()
+	previous := map[string]*managedInstance{}
+	for id, managed := range a.managed {
+		if managed.packageID == packageID {
+			previous[id] = managed
 		}
 	}
-	change := gordis.Change{}
-	next := map[string]bool{}
+	a.mu.Unlock()
+
+	next := map[string]*managedInstance{}
 	for _, instance := range b.manifest.Instances {
 		id := packageID + "--" + instance.ID
-		gatewayID := id + "--gateway"
-		slot := appplugin.EndpointContract + "/" + id
-		next[id], next[gatewayID] = true, true
 		config, _ := json.Marshal(backendConfig{Directory: directory, Digest: b.digest, Config: instance.Config})
-		change.Upsert = append(change.Upsert, gordis.InstanceSpec{
-			ID:       id,
-			Plugin:   appplugin.BackendPluginID,
-			Version:  version,
-			Disabled: disabled[id],
-			Config:   config,
-			Outputs:  map[string]string{appplugin.EndpointContract: slot},
-		})
 		gateway, _ := json.Marshal(gatewayPlugin{
 			BackendID: id,
 			Directory: directory,
 			Digest:    b.digest,
 		})
-		change.Upsert = append(change.Upsert, gordis.InstanceSpec{
-			ID:      gatewayID,
-			Plugin:  appplugin.GatewayPluginID,
-			Version: version,
-			Parent:  id,
-			Config:  gateway,
-			Inputs:  map[string]string{appplugin.EndpointContract: slot},
-		})
-	}
-	for _, s := range a.host.Snapshot() {
-		if strings.HasPrefix(s.ID, packageID+"--") && !next[s.ID] {
-			change.Remove = append(change.Remove, s.ID)
+		next[id] = &managedInstance{
+			id: id, packageID: packageID, title: instance.Title, version: version,
+			backendConfig: config, gatewayConfig: gateway, bundle: b,
 		}
 	}
-	plan, err := a.host.Preview(change)
-	if err != nil {
-		return 0, err
+
+	changes := a.host.Changes()
+	requestCount := 0
+	for _, managed := range previous {
+		if managed.backend != nil {
+			changes.Unmount(managed.backend)
+			requestCount++
+		}
 	}
+	mountOrder := []*managedInstance{}
+	for _, instance := range b.manifest.Instances {
+		id := packageID + "--" + instance.ID
+		managed := next[id]
+		old := previous[id]
+		if old != nil && old.backend == nil {
+			continue // Loader preserves an explicitly disabled entry across upgrades.
+		}
+		env := a.host.Env().Isolate(appplugin.EndpointsKey, id)
+		changes.Mount(env, gordis.InstanceSpec{
+			ID: id, Plugin: appplugin.BackendPluginID, Config: managed.backendConfig,
+		})
+		mountOrder = append(mountOrder, managed)
+		requestCount++
+	}
+	var operation *gordis.Operation
+	if requestCount != 0 {
+		operation, err = a.startOperation(ctx, changes)
+		if err != nil {
+			return operationID(operation), err
+		}
+		mounted := operation.Mounted()
+		if len(mounted) != len(mountOrder) {
+			return operationID(operation), fmt.Errorf("mounted backend handle count changed")
+		}
+		for index := range mounted {
+			mountOrder[index].backend = mounted[index]
+		}
+	}
+
 	a.mu.Lock()
 	a.bundles[b.digest] = b
+	for id := range previous {
+		delete(a.managed, id)
+	}
+	for id, managed := range next {
+		a.managed[id] = managed
+	}
 	a.mu.Unlock()
-	return a.apply(ctx, plan)
+	if operation != nil {
+		if err := operation.WaitReady(ctx); err != nil {
+			return operationID(operation), err
+		}
+	}
+	gatewayOperation, err := a.mountGateways(ctx, mountOrder)
+	if gatewayOperation != nil {
+		operation = gatewayOperation
+	}
+	return operationID(operation), err
 }
 
-func (a *app) apply(ctx context.Context, plan *gordis.Plan) (uint64, error) {
-	id, err := a.host.Apply(ctx, plan)
-	if id != 0 {
+func (a *app) startOperation(ctx context.Context, changes *gordis.ChangeSet) (*gordis.Operation, error) {
+	operation, err := changes.Apply(ctx)
+	if operation != nil {
 		a.mu.Lock()
-		a.lastOperation = id
+		a.lastOperation = operation
 		a.mu.Unlock()
 	}
-	return id, err
+	return operation, err
+}
+
+func operationID(operation *gordis.Operation) uint64 {
+	if operation == nil {
+		return 0
+	}
+	return operation.Snapshot().ID
+}
+
+func (a *app) mountGateways(ctx context.Context, managed []*managedInstance) (*gordis.Operation, error) {
+	if len(managed) == 0 {
+		return nil, nil
+	}
+	changes := a.host.Changes()
+	for _, instance := range managed {
+		changes.Mount(instance.backend.Env(), gordis.InstanceSpec{
+			ID: "gateway", Plugin: appplugin.GatewayPluginID, Config: instance.gatewayConfig,
+		})
+	}
+	operation, err := a.startOperation(ctx, changes)
+	if err == nil {
+		err = operation.WaitReady(ctx)
+	}
+	return operation, err
+}
+
+func (a *app) setEnabled(ctx context.Context, id string, enabled bool) (uint64, error) {
+	a.mu.Lock()
+	managed := a.managed[id]
+	a.mu.Unlock()
+	if managed == nil {
+		return 0, fmt.Errorf("unknown instance")
+	}
+	if enabled == (managed.backend != nil) {
+		return 0, nil
+	}
+	if !enabled {
+		changes := a.host.Changes()
+		changes.Unmount(managed.backend)
+		operation, err := a.startOperation(ctx, changes)
+		if err == nil {
+			err = operation.Wait(ctx)
+		}
+		if err == nil {
+			a.mu.Lock()
+			managed.backend = nil
+			a.mu.Unlock()
+		}
+		return operationID(operation), err
+	}
+
+	changes := a.host.Changes()
+	changes.Mount(a.host.Env().Isolate(appplugin.EndpointsKey, id), gordis.InstanceSpec{
+		ID: id, Plugin: appplugin.BackendPluginID, Config: managed.backendConfig,
+	})
+	operation, err := a.startOperation(ctx, changes)
+	if err != nil {
+		return operationID(operation), err
+	}
+	mounted := operation.Mounted()
+	if len(mounted) != 1 {
+		return operationID(operation), fmt.Errorf("mounted backend handle is unavailable")
+	}
+	a.mu.Lock()
+	managed.backend = mounted[0]
+	a.mu.Unlock()
+	if err = operation.WaitReady(ctx); err == nil {
+		var gatewayOperation *gordis.Operation
+		gatewayOperation, err = a.mountGateways(ctx, []*managedInstance{managed})
+		if gatewayOperation != nil {
+			operation = gatewayOperation
+		}
+	}
+	return operationID(operation), err
+}
+
+func (a *app) uninstall(ctx context.Context, packageID string) (uint64, error) {
+	a.mu.Lock()
+	managed := make([]*managedInstance, 0)
+	for _, instance := range a.managed {
+		if instance.packageID == packageID {
+			managed = append(managed, instance)
+		}
+	}
+	a.mu.Unlock()
+	if len(managed) == 0 {
+		return 0, fmt.Errorf("package is not loaded")
+	}
+	changes := a.host.Changes()
+	mounted := 0
+	for _, instance := range managed {
+		if instance.backend != nil {
+			changes.Unmount(instance.backend)
+			mounted++
+		}
+	}
+	var operation *gordis.Operation
+	var err error
+	if mounted != 0 {
+		operation, err = a.startOperation(ctx, changes)
+		if err == nil {
+			err = operation.Wait(ctx)
+		}
+		if err != nil {
+			return operationID(operation), err
+		}
+	}
+	a.mu.Lock()
+	for _, instance := range managed {
+		delete(a.managed, instance.id)
+	}
+	a.mu.Unlock()
+	return operationID(operation), nil
 }
 
 func (a *app) diagnostics() []process.Diagnostics {

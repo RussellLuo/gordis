@@ -12,19 +12,13 @@ Plugin 原型 ──Spec()──> PluginSpec
 Key[T] ──Spec()──> ServiceSpec ──声明于──> PluginSpec.Requires / Provides
 
 应用装配
-InstanceSpec
-├─ Plugin 字段 ──选择──> PluginSpec.ID
-├─ ID / Config / Parent / Optional
-└─ Inputs / Outputs ──把服务契约映射到槽位
-
-PluginSpec + InstanceSpec ──> Host
-Host ──校验──> 实例图
-               ├─ Parent：所有权边
-               └─ Requires / Provides + 槽位：服务依赖边
+NewHost（Plugin 类型）──> Host ──> synthetic root Env
+Env View + InstanceSpec（ID / Plugin / Config）──Mount──> desired instance graph
+Host ──校验──> Requires / Provides + View 标签：服务依赖边
 Host ──激活──> 实例 generation
                ├─ Plugin 运行对象（由 PluginSpec.New() 创建）
                ├─ Scope ──拥有──> 任务 / 租约 / 清理操作
-               └─ 固定绑定：消费者 Key → 槽位 → 提供者实例 + generation → 服务值
+               └─ 固定绑定：消费者 Key + 标签 → 提供者实例 + generation → 服务值
 ```
 
 ## 从插件类型到一次运行
@@ -33,7 +27,9 @@ Host ──激活──> 实例 generation
 | --- | --- |
 | `Plugin` 原型 | 传给 `NewHost`，只用于读取稳定的 `Spec()`，不会被启动 |
 | `PluginSpec` | 插件类型 ID、`New`、`Requires` 和 `Provides` |
-| `InstanceSpec` | 应用中的实例 ID、插件类型、JSON 配置和装配关系 |
+| `Env` | 用于挂载实例的不可变 owner 与可见性 View |
+| `InstanceSpec` | owner-local ID、插件类型与 JSON 配置 |
+| `Instance` | 跨 Update/Restart generation 稳定、直到 Unmount 的逻辑句柄 |
 | Plugin 运行对象 | `PluginSpec.New()` 为一次准备或激活创建的新对象 |
 | generation | 同一实例的激活代次；每次实际激活递增 |
 | `Scope` | 本代的身份、固定依赖、任务、租约和清理操作 |
@@ -44,12 +40,12 @@ Host ──激活──> 实例 generation
 Host 在预检和激活时都执行：
 
 ```text
-New → JSON 解码 → Spec 契约核对 → 可选 Validate
+New → JSON 解码 → Spec 契约核对 → 可选 Validate → Activate 能力核对
 ```
 
-预检对象会被丢弃，因此 `New` 和 `Validate` 必须无副作用；资源只能在 `Start` 中创建。
+预检对象会被丢弃，因此 `New` 和 `Validate` 必须无副作用；资源只能在 `Activate` 中创建。
 
-## 服务、Key 与槽位
+## 服务、Key 与标签
 
 服务是插件之间共享的 Go 值，通常是接口。公共契约包定义 `Key[T]`：
 
@@ -64,47 +60,67 @@ var StoreKey = gordis.NewKey[Store]("example.store/1")
 `Key[T].Spec()` 暴露存放在 `PluginSpec.Requires` 和 `PluginSpec.Provides` 中的
 `ServiceSpec` 元数据。
 
-提供者在 `PluginSpec.Provides` 中声明 `StoreKey.Spec()`，并在 `Start` 中调用 `Provide`。消费者在 `Requires` 中声明同一个契约，再通过 `Get` 取得固定绑定。
+提供者在 `PluginSpec.Provides` 中声明 `StoreKey.Spec()`，并在 `Activate` 中调用 `Provide`。消费者在 `Requires` 中声明同一个契约，再通过 `Get` 取得固定绑定。
 
 `Plugin` 不等于 Service，`Provides` 也不会自动发布 Plugin。插件可以发布自身、另一个对象或多个服务值。
 
-默认情况下，服务名同时是槽位名。需要多个相同契约的提供者时，应用用 `Outputs` 和 `Inputs` 映射槽位：
+默认情况下，服务名同时是可见性标签。需要多个相同契约的提供者时，应用派生隔离的 Env：
 
 ```text
-store-main  ── example.store/1 → store.primary ──> collector-main
-store-audit ── example.store/1 → store.audit   ──> collector-audit
+tenantA := host.Env().Isolate(StoreKey, "tenant-a")
+tenantB := host.Env().Isolate(StoreKey, "tenant-b")
 ```
 
-插件内部仍只使用 `StoreKey`，不需要知道部署槽位。Host 要求同一槽位只有一个提供者，且两端的契约名称与 Go 类型完全一致。
+插件内部仍只使用 `StoreKey`，不需要知道可见性标签。Host 要求同一 `(Key, label)` 只有一个
+provider，且两端契约名称与 Go 类型完全一致。
 
 ## 所有权与服务依赖
 
-Gordis 同时维护两种关系：
-
-- `InstanceSpec.Parent`：生命周期所有权，回答“谁随谁一起退出”。
-- `PluginSpec.Requires`：服务依赖，回答“谁必须先启动、后清理”。
-
-两者不能互相替代。子实例不会因为设置了 Parent 就自动获得父实例的服务；没有父子关系的实例也可以通过服务依赖协作。Host 将两种关系合成一个无环图，按父级和提供者优先启动，按子级和消费者优先清理。
-
-`Optional: true` 只适用于子实例，表示该子树不参与父实例的 `GroupReady` 判断。它不会放宽服务依赖校验，也不会保护依赖它的其他消费者。
+所有通过 `host.Env().Mount` 创建的实例都由 synthetic root 拥有，并在 `Shutdown` 时排空。
+Plugin 可以通过 `scope.Env()` 挂载 child；child 属于当前 parent generation，在 parent 停止或
+换代时被回收。`PluginSpec.Requires` 独立表达服务依赖，保证 consumer 先于 provider 清理。
+ownership 不蕴含 readiness 依赖：Pending 或失败的 child 不会改变 owner 的 Phase 或
+`WaitReady` 结果；只有 owner 显式 Requires child 提供的 Service 时才会形成可用性依赖。
 
 ## 状态、就绪与等待
 
-常见实例状态：
+generation 的主生命周期使用以下 `Phase`：
 
 ```text
-registered → starting → ready → stopping → stopped
-               │                    │
-               └──── failed ────────┘
-pending ────────────依赖出现────────> starting
+pending ──依赖出现──> activating ──> ready ──> stopping ──> stopped
+                         │                         ▲
+                         └──────── failure ────────┘
 ```
 
-- `Ready` 表示实例自身启动成功并已发布服务。
-- `GroupReady` 还要求全部必需子实例就绪。
-- `AllowPending` 允许动态图中的消费者等待缺失服务；静态 `NewHost` 仍要求完整依赖。
-- `Snapshot` 报告绑定、generation、阻塞槽位、任务、租约、停止原因和清理结果。
+Failure 不属于 `Phase`；它与最终 `Outcome`、cleanup 诊断分开记录。
 
-操作完成与实例就绪不是同一件事。动态变更可能成功提交，但实例仍处于 pending；分别使用 `WaitOperation` 和 `WaitReady`。
+- `ready` 表示实例自身激活成功并已发布服务。
+- required binding 暂缺时，desired Instance 自动保持 `pending`，不需要实例级开关。
+- `Snapshot` 报告 Phase、Failure/Outcome、绑定、generation、阻塞标签、任务、租约、停止原因和清理结果。
+
+提交与就绪不是同一件事。`Env.Mount` 可以成功提交而实例仍处于 pending；只有下一步确实依赖
+该次精确 desired revision 时，才调用 `Instance.WaitReady`。`Operation.WaitReady` 检查本次
+operation 固定的每个 exact target，但不会递归加入它们的 children。
+
+## 应用级 readiness gate
+
+应用需要判断一组最低能力是否可用时，用一个普通 Plugin Requires 这些 Service：
+
+```go
+func (*applicationReady) Spec() gordis.PluginSpec {
+    return gordis.PluginSpec{
+        ID: "application-ready",
+        Requires: []gordis.ServiceSpec{
+            DatabaseKey.Spec(), SchedulerKey.Spec(), HTTPServerKey.Spec(),
+        },
+        New: func() gordis.Plugin { return new(applicationReady) },
+    }
+}
+```
+
+先 Mount providers，再对 gate 调用 `MountReady`。任何 required Service 不可用时 gate 都会
+保持 Pending；启动工具可结合 provider Failure 及 Snapshot 的 `BlockedBy`/`BlockedLabels`
+诊断原因。Core 不再维护 ownership subtree 的聚合健康状态。
 
 ## Scope 与资源归属
 

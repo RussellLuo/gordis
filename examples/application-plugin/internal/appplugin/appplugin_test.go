@@ -45,7 +45,7 @@ func (p *httpFixture) Spec() gordis.PluginSpec {
 	}}
 }
 
-func (p *httpFixture) Start(_ context.Context, scope *gordis.Scope) error {
+func (p *httpFixture) Activate(_ context.Context, scope *gordis.Scope) error {
 	endpoint, err := StartHTTP(scope, "api", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		close(p.entered)
 		<-p.release
@@ -64,17 +64,15 @@ func TestHTTPDataPlaneDrainsRemoteScopeLease(t *testing.T) {
 	completed := make(chan struct{})
 	release := make(chan struct{})
 	plugin := &httpFixture{endpoint: endpoints, entered: entered, completed: completed, release: release}
-	host, err := gordis.NewHost(
-		[]gordis.Plugin{plugin},
-		[]gordis.InstanceSpec{{ID: "application", Plugin: "http-fixture"}},
-	)
+	host, err := gordis.NewHost([]gordis.Plugin{plugin})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := host.Start(context.Background()); err != nil {
+	instance, err := host.Env().MountReady(context.Background(), gordis.InstanceSpec{ID: "application", Plugin: "http-fixture"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	defer host.Stop(context.Background())
+	defer host.Shutdown(context.Background())
 	endpoint := <-endpoints
 	request, _ := http.NewRequest(http.MethodGet, endpoint.URL+"/stream", nil)
 	request.Header.Set(TokenHeader, endpoint.Token)
@@ -93,7 +91,7 @@ func TestHTTPDataPlaneDrainsRemoteScopeLease(t *testing.T) {
 		t.Fatal("HTTP handler did not start")
 	}
 	stopped := make(chan error, 1)
-	go func() { stopped <- host.StopInstance(context.Background(), "application") }()
+	go func() { stopped <- instance.Unmount(context.Background()) }()
 	select {
 	case err := <-stopped:
 		t.Fatalf("stop overtook active HTTP request: %v", err)

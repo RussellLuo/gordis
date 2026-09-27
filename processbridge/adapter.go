@@ -18,14 +18,21 @@ type Adapter struct {
 	// identifies the plugin contract, not its execution mode.
 	ID                 string
 	Requires, Provides []Binding
-	Resolve            func(json.RawMessage) (process.Options, error)
-	OnClient           func(*process.Client)
+	// Events explicitly registers every Topic/Hook that may cross this process
+	// boundary. Local-only events do not belong here.
+	Events   []EventBinding
+	Resolve  func(json.RawMessage) (process.Options, error)
+	OnClient func(*process.Client)
 }
 
 // Plugin returns a registration prototype whose runtime objects use the same
 // configuration preparation path as native Gordis plugins.
 func (a Adapter) Plugin() (gordis.Plugin, error) {
 	requires, err := specs(a.Requires)
+	if err != nil {
+		return nil, err
+	}
+	requires, err = eventBusRequirement(requires, a.Events)
 	if err != nil {
 		return nil, err
 	}
@@ -38,6 +45,7 @@ func (a Adapter) Plugin() (gordis.Plugin, error) {
 	}
 	a.Requires = append([]Binding(nil), a.Requires...)
 	a.Provides = append([]Binding(nil), a.Provides...)
+	a.Events = append([]EventBinding(nil), a.Events...)
 	var spec gordis.PluginSpec
 	spec = gordis.PluginSpec{ID: a.ID, Requires: requires, Provides: provides}
 	spec.New = func() gordis.Plugin { return &adapterPlugin{adapter: a, spec: spec} }
@@ -62,7 +70,7 @@ func (p *adapterPlugin) Validate() error {
 	return err
 }
 
-func (p *adapterPlugin) Start(ctx context.Context, s *gordis.Scope) error {
+func (p *adapterPlugin) Activate(ctx context.Context, s *gordis.Scope) error {
 	o, err := p.adapter.Resolve(append(json.RawMessage(nil), p.raw...))
 	if err != nil {
 		return err
@@ -75,16 +83,20 @@ func (p *adapterPlugin) Start(ctx context.Context, s *gordis.Scope) error {
 		}
 		handlers[b.spec.Name()] = b.handler(value)
 	}
+	eventHost, err := newEventHost(s, p.adapter.Events, p.adapter.Provides)
+	if err != nil {
+		return err
+	}
 	o.Instance, o.Generation = s.ID(), s.Generation()
-	o.Identity = identityWithBindings(o.Identity, p.adapter.Requires, p.adapter.Provides)
+	o.Identity = identityWithBindings(o.Identity, p.adapter.Requires, p.adapter.Provides, p.adapter.Events)
 	// These references remain valid through consumer cleanup, even while the
 	// provider Scope is frozen. Never acquire a fresh provider entrance lease.
-	o.Handler = router(handlers)
+	o.Handler = bridgeHandler(handlers, eventHost.handle)
 	var client *process.Client
 	calls := &callGate{}
 	// Establish ownership BEFORE acquisition: dependency failure may freeze
-	// this Scope while Start is in flight. Registering afterwards could lose
-	// cleanup residuals. Lifecycle owners serialize Start and Dispose.
+	// this Scope while Activate is in flight. Registering afterwards could lose
+	// cleanup residuals. Lifecycle owners serialize Activate and Dispose.
 	if err := s.Defer("processbridge", func(ctx context.Context) error {
 		if client == nil {
 			return nil
@@ -94,12 +106,24 @@ func (p *adapterPlugin) Start(ctx context.Context, s *gordis.Scope) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.Defer("processbridge event subscriptions", func(context.Context) error {
+		eventHost.close()
+		return nil
+	}); err != nil {
+		return err
+	}
+	if len(p.adapter.Events) != 0 {
+		if err := s.AfterReady("processbridge event ready", eventHost.ready); err != nil {
+			return err
+		}
+	}
 	var startErr error
 	client, startErr = process.Start(ctx, o)
 	if client == nil {
 		return startErr
 	}
-	calls.peer = client
+	calls.setPeer(client)
+	eventHost.setPeer(calls)
 	if p.adapter.OnClient != nil {
 		p.adapter.OnClient(client)
 	}
@@ -129,16 +153,23 @@ type callGate struct {
 	peer   process.Caller
 }
 
+func (g *callGate) setPeer(peer process.Caller) {
+	g.mu.Lock()
+	g.peer = peer
+	g.mu.Unlock()
+}
+
 func (g *callGate) Call(ctx context.Context, method string, params, result any) error {
 	g.mu.Lock()
-	if g.closed {
+	if g.closed || g.peer == nil {
 		g.mu.Unlock()
 		return gordis.ErrClosed
 	}
+	peer := g.peer
 	g.active.Add(1)
 	g.mu.Unlock()
 	defer g.active.Done()
-	return g.peer.Call(ctx, method, params, result)
+	return peer.Call(ctx, method, params, result)
 }
 
 func (g *callGate) drain() { g.mu.Lock(); g.closed = true; g.mu.Unlock(); g.active.Wait() }

@@ -55,6 +55,10 @@ func match(declared []gordis.ServiceSpec, bindings []Binding) error {
 	if err != nil {
 		return err
 	}
+	return matchSpecs(declared, actual)
+}
+
+func matchSpecs(declared, actual []gordis.ServiceSpec) error {
 	if len(actual) != len(declared) {
 		return errors.New("processbridge: binding set differs from plugin contract")
 	}
@@ -108,10 +112,15 @@ func router(handlers map[string]process.CallHandler) process.CallHandler {
 	}
 }
 
-func identityWithBindings(identity process.Identity, requires, provides []Binding) process.Identity {
+func identityWithBindings(
+	identity process.Identity,
+	requires, provides []Binding,
+	events []EventBinding,
+) process.Identity {
 	identity.Contracts = append([]string(nil), identity.Contracts...)
 	bindings := append(append([]Binding(nil), requires...), provides...)
 	names := append([]string{process.LifecycleContract}, bindingNames(bindings)...)
+	names = append(names, eventContractNames(events)...)
 	for _, name := range names {
 		found := false
 		for _, c := range identity.Contracts {

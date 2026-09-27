@@ -27,7 +27,7 @@ func (p *proxyTestPlugin) Spec() gordis.PluginSpec {
 	}}
 }
 
-func (p *proxyTestPlugin) Start(_ context.Context, scope *gordis.Scope) error {
+func (p *proxyTestPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
 	p.app.mu.Lock()
 	p.app.entries[scope.ID()] = &endpoint{scope: scope, generation: scope.Generation(), proxy: p.proxy}
 	p.app.mu.Unlock()
@@ -105,19 +105,17 @@ func TestStreamingLeaseDrainsOnClientDisconnect(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closeIdle()
-	a := &app{base: "/nested/demo/", entries: map[string]*endpoint{}}
+	a := &app{base: "/nested/demo/", entries: map[string]*endpoint{}, managed: map[string]*managedInstance{}}
 	withdrawn := make(chan struct{})
-	a.host, err = gordis.NewHost(
-		[]gordis.Plugin{&proxyTestPlugin{app: a, proxy: proxy, withdrawn: withdrawn}},
-		[]gordis.InstanceSpec{{ID: "sampler--alpha", Plugin: "test"}},
-	)
+	a.host, err = gordis.NewHost([]gordis.Plugin{&proxyTestPlugin{app: a, proxy: proxy, withdrawn: withdrawn}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := a.host.Start(context.Background()); err != nil {
+	instance, err := a.host.Env().MountReady(context.Background(), gordis.InstanceSpec{ID: "sampler--alpha", Plugin: "test"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	defer a.host.Stop(context.Background())
+	defer a.host.Shutdown(context.Background())
 	mux := http.NewServeMux()
 	mux.HandleFunc(a.base+"api/extensions/{id}/{rest...}", a.forward)
 	front := httptest.NewServer(mux)
@@ -149,7 +147,7 @@ func TestStreamingLeaseDrainsOnClientDisconnect(t *testing.T) {
 		t.Fatal(line, err)
 	}
 	stopped := make(chan error, 1)
-	go func() { stopped <- a.host.StopInstance(context.Background(), "sampler--alpha") }()
+	go func() { stopped <- instance.Unmount(context.Background()) }()
 	select {
 	case <-withdrawn:
 	case <-time.After(3 * time.Second):

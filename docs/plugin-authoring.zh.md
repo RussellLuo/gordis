@@ -2,11 +2,12 @@
 
 [English](plugin-authoring.md) | 中文
 
-本文给出插件作者需要的最短路径。对象关系见[核心概念](concepts.zh.md)，精确启停规则见[生命周期](lifecycle.zh.md)。
+本文覆盖当前 Local-first 作者模型。对象关系见[核心概念](concepts.zh.md)，精确清理规则见
+[生命周期](lifecycle.zh.md)。
 
 ## 1. 定义公共契约
 
-提供者和消费者共同依赖一个轻量契约包：
+provider 与 consumer 共同依赖一个轻量契约包：
 
 ```go
 type Store interface {
@@ -16,11 +17,12 @@ type Store interface {
 var StoreKey = gordis.NewKey[Store]("example.store/1")
 ```
 
-`StoreKey.Spec()` 用于 `Requires` / `Provides` 声明，`StoreKey.Name()` 用于 `Inputs` / `Outputs` 槽位映射。实际服务值仍由 `Provide` 提交。
+`StoreKey.Spec()` 用于 `PluginSpec.Requires` / `Provides`；`Provide` 提交运行时值，`Get`
+读取 consumer generation 的固定 binding。
 
 ## 2. 实现 Plugin
 
-插件结构体保存实例配置，并实现稳定的 `Spec()` 与本代的 `Start()`：
+插件结构体保存解码后的实例配置，并实现稳定的 `Spec` 元数据与本代 `Activate`：
 
 ```go
 type Writer struct {
@@ -43,7 +45,7 @@ func (p *Writer) Validate() error {
     return nil
 }
 
-func (p *Writer) Start(ctx context.Context, scope *gordis.Scope) error {
+func (p *Writer) Activate(ctx context.Context, scope *gordis.Scope) error {
     store, err := gordis.Get(scope, StoreKey)
     if err != nil {
         return err
@@ -52,31 +54,20 @@ func (p *Writer) Start(ctx context.Context, scope *gordis.Scope) error {
 }
 ```
 
-应用注册一个原型，并用 `InstanceSpec` 创建实例：
+约束：
 
-```go
-host, err := gordis.NewHost(
-    []gordis.Plugin{new(Writer), storePlugin},
-    []gordis.InstanceSpec{{
-        ID: "writer-main", Plugin: "writer",
-        Config: json.RawMessage(`{"path":"hello","text":"world"}`),
-    }},
-)
-```
+- `Spec` 的 ID、Requires 和 Provides 不随配置变化。
+- `New` 每次返回新的非 nil、实现 `Activate` 的对象，只设置确定性的默认值。
+- `Validate` 可重复、无副作用。
+- `Activate` 成功返回时，插件必须已可用并提交全部声明的 Service。
+- 长期任务通过 `scope.Go` 使用 `scope.Context()`，不用 activation context。
 
-遵守以下约束：
+Host 在预检时创建 preparation object，核对它的 `Spec`、配置、可选 `Validate` 和 `Activate`
+能力后丢弃；实际激活时再创建独立的运行对象。
 
-- `Spec()` 的 ID、Requires 和 Provides 不随配置变化。
-- `New()` 每次返回全新的非 nil 对象，只设置确定性的默认值。
-- `Validate()` 可重复、无副作用，不打开资源或启动任务。
-- `Start()` 返回成功时必须已经可用，并提交全部声明的服务。
-- Plugin 与 Service 是两个概念；插件可发布自身，也可发布独立对象。
+## 3. 用 Scope 管理资源
 
-Host 会在预检与实际激活时分别创建、解码和校验对象。预检对象总会被丢弃。
-
-## 3. 提供服务并管理资源
-
-提供者在 `Start` 中创建资源、立即登记清理，最后发布服务：
+在 `Activate` 中取得资源、立即登记清理，最后发布：
 
 ```go
 store, err := openStore()
@@ -92,56 +83,87 @@ if err := scope.Defer("store", func(context.Context) error {
 return gordis.Provide[Store](scope, StoreKey, store)
 ```
 
-常用 Scope API：
+- `scope.Go(name, fn)` 管理长期任务；非取消错误会使本代失败。
+- `scope.OnStop(name, fn)` 先关闭 listener 等入口。
+- `scope.Acquire()` 保护已准入请求，停止时等待租约释放。
+- `scope.Defer(name, fn)` 最终逆序释放资源。
 
-- `scope.Go(name, fn)`：启动受管任务；非取消错误会使实例失败。
-- `scope.OnStop(name, fn)`：停止入口、监听器或订阅。
-- `scope.Acquire()`：保护已经进入的请求，停止会等待租约释放。
-- `scope.Defer(name, fn)`：最终逆序释放资源。
-- `scope.Context()`：长期任务的运行 context。
+不要让 Scope、Service 或未受管 goroutine 跨 generation 逃逸。清理登记被拒绝时，调用方仍
+拥有刚取得的资源，必须立即自行释放。
 
-不要使用启动 context 管理长期任务，也不要把服务、Scope 或未受管 goroutine 保存到跨代全局状态。资源创建后若登记失败，调用方仍拥有资源，必须立即自行回收。
+## 4. 挂载并隔离 root 实例
 
-## 4. 组合多个实例
-
-同一服务有多个提供者时，由应用映射槽位：
+先登记固定 Plugin 类型目录，再挂载 desired instance：
 
 ```go
-specs := []gordis.InstanceSpec{
-    {ID: "store-main", Plugin: "store", Outputs: map[string]string{StoreKey.Name(): "store.primary"}},
-    {ID: "store-audit", Plugin: "store", Outputs: map[string]string{StoreKey.Name(): "store.audit"}},
-    {ID: "writer-main", Plugin: "writer", Inputs: map[string]string{StoreKey.Name(): "store.primary"}},
-    {ID: "writer-audit", Plugin: "writer", Inputs: map[string]string{StoreKey.Name(): "store.audit"}},
+host, err := gordis.NewHost([]gordis.Plugin{storePlugin, new(Writer)})
+if err != nil {
+    return err
+}
+defer host.Shutdown(context.Background())
+
+tenant := host.Env().Isolate(StoreKey, "tenant-a")
+writer, err := tenant.Mount(ctx, gordis.InstanceSpec{
+    ID: "writer", Plugin: "writer",
+    Config: json.RawMessage(`{"path":"hello","text":"world"}`),
+})
+if err != nil {
+    return err
+}
+_, err = tenant.Mount(ctx, gordis.InstanceSpec{ID: "store", Plugin: "store"})
+if err != nil {
+    return err
+}
+return writer.WaitReady(ctx)
+```
+
+consumer 可以先挂载，并在匹配 provider 出现前自动保持 Pending。`Env.Isolate` 同时调整该 Key
+的消费与提供路由，plugin 代码无需知道部署标签。
+
+后续控制使用 `Instance.Update`、`Restart`、`WaitReady` 与 `Unmount`。Plugin 可通过
+`Scope.Env()` 挂载由当前 generation 拥有的 child；parent 停止或换代时会递归回收旧 child。
+详见[动态管理](dynamic.zh.md)。
+
+## 5. 可选 EventBus
+
+应用把 `&events.Plugin{}` 登记到 Host 类型目录，并挂载一个 `events.PluginID` 实例。事件
+使用者在 `Requires` 中声明 `events.BusKey.Spec()`，再绑定当前 generation 的 Scope：
+
+```go
+var Changed = events.NewTopic[string]("example.changed/1")
+
+func (*observerPlugin) Spec() gordis.PluginSpec {
+    return gordis.PluginSpec{
+        ID:       "observer",
+        Requires: []gordis.ServiceSpec{events.BusKey.Spec()},
+        New:      func() gordis.Plugin { return new(observerPlugin) },
+    }
+}
+
+func (*observerPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
+    _, err := events.Bind(scope).On(Changed, observe,
+        events.Priority(10), events.Once())
+    return err
 }
 ```
 
-插件只使用公共 Key，不知道部署槽位。`Parent` 用于生命周期归属，不能替代 Requires。附加能力可以设置 `Parent` 与 `Optional: true`；它失败时不影响父组 `GroupReady`，但 Start 仍返回错误，服务依赖也不会变成可选。
-
-## 5. 动态实例
-
-运行中的 Host 通过 `Preview` / `Apply` 提交完整 `InstanceSpec`。允许等待缺失服务的消费者必须设置 `AllowPending`；删除提供者并保留消费者时，还要在 `Change` 中设置 `AllowWaitingConsumers`。
-
-变更可能已提交但实例仍在等待，因此分别使用 `WaitOperation` 和 `WaitReady`。详细语义见[动态管理](dynamic.zh.md)。
+订阅归 subscriber Scope 所有，并在清理时自动撤销。`Publish` 使用有界并行投递；`Emit` 按
+稳定顺序串行调用；`Serial/Bail` 选择第一个显式 handled 的结果；`Waterfall` 用只能在当前
+middleware 返回前调用一次的 `Next` 组合 middleware。已经在返回前准入的 `Next` 会被纳入
+本次分发并排空；返回后保存并调用它会得到 `events.ErrNextExpired`。`Env.Isolate` 可以独立
+分区 Topic，不会连带改变 Service 标签。
+调用方必须得到某个确定响应者时，应使用普通 Service。
 
 ## 6. 进程外插件
 
-业务 Plugin 仍只使用根包的 `Spec`、`Start`、`Get`、`Provide` 和 Scope API。装配层使用 `processbridge.Adapter`，独立程序使用 `processbridge.Serve`，双方通过显式 `Binding` 描述可跨进程的方法和 JSON DTO。
+业务 Plugin 仍使用相同的 `Spec`、`Activate`、`Get`、`Provide` 和 Scope API。装配层使用
+`processbridge.Adapter`，子进程使用 `processbridge.Serve`，显式 `Binding` 定义 JSON DTO
+与方法 wire 行为。
 
-Adapter 应注册为业务的逻辑插件 ID，而不是 `greeter-process` 之类的执行模式 ID。Consumer 始终依赖相同的 `Key[T]`；进程代理由 Adapter 在 `Start` 时发布。
+Adapter 使用业务 Plugin 的逻辑 ID 注册；consumer 继续依赖同一个 `Key[T]`，Adapter 在
+`Activate` 中发布类型化代理。只有请求/响应、取消和错误语义清晰的契约适合跨进程。详见
+[进程协议](process-protocol.zh.md)。
 
-只有具备明确请求/响应、取消和错误语义的契约才适合跨进程。进程退出不等于业务清理成功；完整边界见[进程协议](process-protocol.zh.md)。
-
-自带后端与 UI、且需要在 Host 启动后晚安装的应用，可以统一实现一个稳定的应用契约。应用 Plugin 在远端 Scope 内启动自己的 HTTP、gRPC 或其他数据面，再通过 `Endpoint` 服务发布私有监听地址；Host 只提供通用进程 Adapter、协议 Gateway 和 UI Loader，不需要知道应用的业务路由。数据面请求仍必须持有远端 Scope 租约，确保 `OnStop` 关闭入口后再排空请求和清理 Server。见 [application-plugin](../examples/application-plugin/README.md)。
-
-## 示例索引
-
-| 示例 | 重点 |
-| --- | --- |
-| [basic](../examples/basic/README.md) | 公共服务与实例配置 |
-| [composition](../examples/composition/README.md) | 槽位、Parent 与多实例 |
-| [optional](../examples/optional/README.md) | 可选子树与整组就绪 |
-| [lifecycle](../examples/lifecycle/README.md) | 任务、租约和清理顺序 |
-| [dynamic](../examples/dynamic/README.md) | 运行时装配与恢复 |
-| [process](../examples/process/README.md) | 类型化进程服务 |
-| [duplex](../examples/duplex/README.md) | Host 与插件双向调用 |
-| [application-plugin](../examples/application-plugin/README.md) | 自带数据面后端与 Host UI 的应用插件 |
+跨进程事件同样不改变业务 Plugin：它仍使用 `events.Bind(scope)`。装配层在 Adapter 与
+Serve 两侧用相同的 `BindTopic/BindHook` 登记显式 `EventCodec` 和 Publish/Subscribe 方向；
+纯本地 Event 不需要 wire。远端不能用 `Scope.Env().Mount` 建立 Host 不可见的 child。

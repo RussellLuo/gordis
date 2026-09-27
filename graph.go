@@ -16,6 +16,8 @@ type provider struct {
 	service ServiceSpec
 }
 
+func serviceAddress(name, label string) string { return name + "\x00" + label }
+
 // instanceGraph is a validated description. It has no running Scopes, services,
 // operation history or generation counters.
 type instanceGraph struct {
@@ -36,15 +38,23 @@ type graphNode struct {
 
 func copySpec(s InstanceSpec) InstanceSpec {
 	s.Config = append(s.Config[:0:0], s.Config...)
-	inputs, outputs := map[string]string{}, map[string]string{}
-	for k, v := range s.Inputs {
-		inputs[k] = v
+	s.view = s.view.clone()
+	required, provided := map[string]string{}, map[string]string{}
+	for k, v := range s.requiredLabels {
+		required[k] = v
 	}
-	for k, v := range s.Outputs {
-		outputs[k] = v
+	for k, v := range s.providedLabels {
+		provided[k] = v
 	}
-	s.Inputs, s.Outputs = inputs, outputs
+	s.requiredLabels, s.providedLabels = required, provided
 	return s
+}
+
+func localID(s InstanceSpec) string {
+	if s.localID != "" {
+		return s.localID
+	}
+	return s.ID
 }
 
 // buildGraph only constructs a candidate: it never activates or freezes scopes.
@@ -73,15 +83,19 @@ func buildGraph(prototypes []Plugin, specs []InstanceSpec, dynamic bool) (*insta
 		if !ok {
 			return nil, fmt.Errorf("gordis: instance %s: unknown plugin %q", spec.ID, spec.Plugin)
 		}
-		if spec.Optional && spec.Parent == "" {
-			return nil, fmt.Errorf("gordis: optional instance %s needs a parent", spec.ID)
-		}
 		if len(spec.Config) == 0 {
 			spec.Config = json.RawMessage(`{}`)
 		}
 		spec.Config = append(json.RawMessage(nil), spec.Config...)
-		if _, err := internalplugin.Prepare(pluginSpec, spec.Config); err != nil {
-			return nil, fmt.Errorf("gordis: instance %s: configuration: %w", spec.ID, err)
+		prepared, prepareErr := internalplugin.Prepare(pluginSpec, spec.Config)
+		if prepareErr != nil {
+			return nil, fmt.Errorf("gordis: instance %s: configuration: %w", spec.ID, prepareErr)
+		}
+		if _, ok := prepared.(activator); !ok {
+			return nil, fmt.Errorf(
+				"gordis: instance %s: plugin %q factory result does not implement Activate",
+				spec.ID, pluginSpec.ID,
+			)
 		}
 		for _, group := range [][]ServiceSpec{pluginSpec.Requires, pluginSpec.Provides} {
 			seen := map[string]bool{}
@@ -103,18 +117,19 @@ func buildGraph(prototypes []Plugin, specs []InstanceSpec, dynamic bool) (*insta
 			}
 		}
 		var err error
-		if spec.Inputs, err = resolveSlots(pluginSpec.Requires, spec.Inputs); err != nil {
-			return nil, fmt.Errorf("gordis: instance %s inputs: %w", spec.ID, err)
+		if spec.requiredLabels, err = resolveLabels(pluginSpec.Requires, spec.requiredLabels, spec.view); err != nil {
+			return nil, fmt.Errorf("gordis: instance %s required service labels: %w", spec.ID, err)
 		}
-		if spec.Outputs, err = resolveSlots(pluginSpec.Provides, spec.Outputs); err != nil {
-			return nil, fmt.Errorf("gordis: instance %s outputs: %w", spec.ID, err)
+		if spec.providedLabels, err = resolveLabels(pluginSpec.Provides, spec.providedLabels, spec.view); err != nil {
+			return nil, fmt.Errorf("gordis: instance %s provided service labels: %w", spec.ID, err)
 		}
 		for _, k := range pluginSpec.Provides {
-			slot := spec.Outputs[k.Name()]
-			if old, ok := g.providers[slot]; ok {
-				return nil, fmt.Errorf("gordis: slot %q: providers %s and %s conflict", slot, old.id, spec.ID)
+			label := spec.providedLabels[k.Name()]
+			address := serviceAddress(k.Name(), label)
+			if old, ok := g.providers[address]; ok {
+				return nil, fmt.Errorf("gordis: service %q label %q: providers %s and %s conflict", k.Name(), label, old.id, spec.ID)
 			}
-			g.providers[slot] = provider{spec.ID, k}
+			g.providers[address] = provider{spec.ID, k}
 		}
 		g.nodes[spec.ID] = &graphNode{spec: spec, plugin: pluginSpec}
 	}
@@ -125,41 +140,38 @@ func buildGraph(prototypes []Plugin, specs []InstanceSpec, dynamic bool) (*insta
 	sort.Strings(ids)
 	for _, id := range ids {
 		i := g.nodes[id]
-		if parent := i.spec.Parent; parent != "" {
+		if parent := i.spec.parent; parent != "" {
 			p, ok := g.nodes[parent]
 			if !ok {
 				return nil, fmt.Errorf("gordis: instance %s: unknown parent %q", id, parent)
 			}
 			p.children = append(p.children, id)
-			i.prereqs = append(i.prereqs, parent)
 		}
 		seen := map[string]bool{}
 		for _, k := range i.plugin.Requires {
-			slot := i.spec.Inputs[k.Name()]
-			p, ok := g.providers[slot]
+			label := i.spec.requiredLabels[k.Name()]
+			p, ok := g.providers[serviceAddress(k.Name(), label)]
 			if !ok {
-				if dynamic && i.spec.AllowPending {
-					i.bindings = append(i.bindings, BindingSnapshot{Service: k.Name(), Slot: slot})
+				if dynamic {
+					i.bindings = append(i.bindings, BindingSnapshot{Service: k.Name(), Label: label})
 					continue
 				}
-				return nil, fmt.Errorf("gordis: instance %s: missing dependency %q in slot %q", id, k.Name(), slot)
+				return nil, fmt.Errorf("gordis: instance %s: missing dependency %q with label %q", id, k.Name(), label)
 			}
 			if lifecycle.ServiceType(p.service) != lifecycle.ServiceType(k) {
 				return nil, fmt.Errorf(
-					"gordis: slot %q: type mismatch (%v vs %v)",
-					slot, lifecycle.ServiceType(p.service), lifecycle.ServiceType(k),
+					"gordis: service label %q: type mismatch (%v vs %v)",
+					label, lifecycle.ServiceType(p.service), lifecycle.ServiceType(k),
 				)
 			}
 			if p.service.Name() != k.Name() {
-				return nil, fmt.Errorf("gordis: slot %q: contract mismatch (%q vs %q)", slot, p.service.Name(), k.Name())
+				return nil, fmt.Errorf("gordis: service label %q: contract mismatch (%q vs %q)", label, p.service.Name(), k.Name())
 			}
-			i.bindings = append(i.bindings, BindingSnapshot{Service: k.Name(), Slot: slot, Provider: p.id})
+			i.bindings = append(i.bindings, BindingSnapshot{Service: k.Name(), Label: label, Provider: p.id})
 			if !seen[p.id] {
 				i.deps = append(i.deps, p.id)
 				seen[p.id] = true
-				if p.id != i.spec.Parent {
-					i.prereqs = append(i.prereqs, p.id)
-				}
+				i.prereqs = append(i.prereqs, p.id)
 			}
 		}
 		sort.Strings(i.deps)
@@ -175,6 +187,11 @@ func buildGraph(prototypes []Plugin, specs []InstanceSpec, dynamic bool) (*insta
 			return nil
 		}
 		visiting[id] = true
+		if parent := g.nodes[id].spec.parent; parent != "" {
+			if err := visit(parent, append(path, id)); err != nil {
+				return err
+			}
+		}
 		for _, dep := range g.nodes[id].prereqs {
 			if err := visit(dep, append(path, id)); err != nil {
 				return err
@@ -193,19 +210,19 @@ func buildGraph(prototypes []Plugin, specs []InstanceSpec, dynamic bool) (*insta
 	return g, nil
 }
 
-func resolveSlots(declarations []ServiceSpec, mappings map[string]string) (map[string]string, error) {
+func resolveLabels(declarations []ServiceSpec, mappings map[string]string, view View) (map[string]string, error) {
 	out := make(map[string]string, len(declarations))
 	for _, key := range declarations {
-		out[key.Name()] = key.Name()
+		out[key.Name()] = view.label(key.Name())
 	}
-	for key, slot := range mappings {
+	for key, label := range mappings {
 		if _, ok := out[key]; !ok {
 			return nil, fmt.Errorf("binding for undeclared service %q", key)
 		}
-		if slot == "" {
-			return nil, fmt.Errorf("empty slot for service %q", key)
+		if label == "" {
+			return nil, fmt.Errorf("empty label for service %q", key)
 		}
-		out[key] = slot
+		out[key] = label
 	}
 	return out, nil
 }
@@ -215,7 +232,7 @@ func (g *instanceGraph) owned(id string) []string {
 	selected := map[string]bool{id: true}
 	var ids []string
 	for _, candidate := range g.order {
-		if selected[g.nodes[candidate].spec.Parent] {
+		if selected[g.nodes[candidate].spec.parent] {
 			selected[candidate] = true
 		}
 		if selected[candidate] {
@@ -231,6 +248,9 @@ func (g *instanceGraph) affected(id string) []string {
 	selected := map[string]bool{id: true}
 	var ids []string
 	for _, candidate := range g.order {
+		if selected[g.nodes[candidate].spec.parent] {
+			selected[candidate] = true
+		}
 		for _, dep := range g.nodes[candidate].prereqs {
 			if selected[dep] {
 				selected[candidate] = true

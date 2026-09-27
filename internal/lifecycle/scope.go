@@ -19,6 +19,11 @@ type task struct {
 	err     error
 }
 
+type readyTask struct {
+	name string
+	fn   func(context.Context) error
+}
+
 // Scope owns one generation's tasks, request leases, and cleanup callbacks.
 // Do not retain it across activations. All registration methods are concurrency safe.
 type Scope struct {
@@ -33,6 +38,7 @@ type Scope struct {
 	services, staged   map[string]any
 	onStop, defers     []cleanup
 	tasks              map[string]*task
+	afterReady         []readyTask
 	work               sync.WaitGroup
 	leases             int
 	phase              string
@@ -85,10 +91,28 @@ func (s *Scope) Acquire() (func(), error) {
 	if s.closed {
 		return nil, ErrClosed
 	}
+	return s.acquireLocked(), nil
+}
+
+// AcquireReady leases a scope only after its generation has committed Ready.
+// Stopping rejects new leases and waits for all already admitted work.
+func (s *Scope) AcquireReady() (func(), error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return nil, ErrClosed
+	}
+	if !s.published {
+		return nil, ErrNotReady
+	}
+	return s.acquireLocked(), nil
+}
+
+func (s *Scope) acquireLocked() func() {
 	s.leases++
 	s.work.Add(1)
 	var once sync.Once
-	return func() { once.Do(func() { s.mu.Lock(); s.leases--; s.mu.Unlock(); s.work.Done() }) }, nil
+	return func() { once.Do(func() { s.mu.Lock(); s.leases--; s.mu.Unlock(); s.work.Done() }) }
 }
 
 // Go runs a named managed task. A non-cancellation error or panic fails this
@@ -107,30 +131,73 @@ func (s *Scope) Go(name string, fn func(context.Context) error) error {
 		s.mu.Unlock()
 		return fmt.Errorf("gordis: duplicate task %q", name)
 	}
-	t := &task{running: true}
-	s.tasks[name] = t
+	s.tasks[name] = &task{running: true}
 	s.work.Add(1)
 	s.mu.Unlock()
-	go func() {
-		err := Invoke(func() error { return fn(s.ctx) })
-		s.mu.Lock()
-		if s.ctx.Err() != nil && errors.Is(err, s.ctx.Err()) {
-			err = nil
-		}
-		t.running = false
-		t.err = err
-		if err != nil {
-			s.taskErr = errors.Join(s.taskErr, fmt.Errorf("task %s: %w", name, err))
-		}
-		s.mu.Unlock()
-		if err != nil && s.onFailure != nil {
-			s.onFailure(fmt.Errorf("task %s: %w", name, err))
-		}
-		// Submit failure before releasing the task's lifetime reference, so a
-		// concurrent stop cannot finish (or permit a new generation) first.
-		s.work.Done()
-	}()
+	go s.runTask(name, fn)
 	return nil
+}
+
+// AfterReady registers a managed task that starts only after the generation's
+// services and other Ready-gated entrances are committed. Registering after
+// Ready starts it immediately. Like Go, a panic or non-cancellation error fails
+// the generation.
+func (s *Scope) AfterReady(name string, fn func(context.Context) error) error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return ErrClosed
+	}
+	if name == "" || fn == nil {
+		s.mu.Unlock()
+		return errors.New("gordis: task needs a name and function")
+	}
+	if _, ok := s.tasks[name]; ok {
+		s.mu.Unlock()
+		return fmt.Errorf("gordis: duplicate task %q", name)
+	}
+	s.tasks[name] = &task{}
+	if !s.published {
+		s.afterReady = append(s.afterReady, readyTask{name: name, fn: fn})
+		s.mu.Unlock()
+		return nil
+	}
+	s.tasks[name].running = true
+	s.work.Add(1)
+	s.mu.Unlock()
+	go s.runTask(name, fn)
+	return nil
+}
+
+func (s *Scope) startAfterReadyLocked() []readyTask {
+	ready := append([]readyTask(nil), s.afterReady...)
+	s.afterReady = nil
+	for _, item := range ready {
+		s.tasks[item.name].running = true
+		s.work.Add(1)
+	}
+	return ready
+}
+
+func (s *Scope) runTask(name string, fn func(context.Context) error) {
+	err := Invoke(func() error { return fn(s.ctx) })
+	s.mu.Lock()
+	if s.ctx.Err() != nil && errors.Is(err, s.ctx.Err()) {
+		err = nil
+	}
+	t := s.tasks[name]
+	t.running = false
+	t.err = err
+	if err != nil {
+		s.taskErr = errors.Join(s.taskErr, fmt.Errorf("task %s: %w", name, err))
+	}
+	s.mu.Unlock()
+	if err != nil && s.onFailure != nil {
+		s.onFailure(fmt.Errorf("task %s: %w", name, err))
+	}
+	// Submit failure before releasing the task's lifetime reference, so a
+	// concurrent stop cannot finish (or permit a new generation) first.
+	s.work.Done()
 }
 
 func Invoke(fn func() error) (err error) {

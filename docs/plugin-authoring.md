@@ -2,11 +2,12 @@
 
 English | [中文](plugin-authoring.zh.md)
 
-This guide follows the shortest path for plugin authors. See [Core Concepts](concepts.md) for the object model and [Lifecycle](lifecycle.md) for exact startup and cleanup rules.
+This guide covers the current Local-first author model. See [Core Concepts](concepts.md)
+for the object model and [Lifecycle](lifecycle.md) for cleanup rules.
 
 ## 1. Define a shared contract
 
-Providers and consumers should depend on a small shared contract package:
+Providers and consumers depend on a small shared package:
 
 ```go
 type Store interface {
@@ -16,11 +17,13 @@ type Store interface {
 var StoreKey = gordis.NewKey[Store]("example.store/1")
 ```
 
-Use `StoreKey.Spec()` in `Requires` and `Provides`, and `StoreKey.Name()` in `Inputs` and `Outputs` slot mappings. The actual service value is still submitted with `Provide`.
+Use `StoreKey.Spec()` in `PluginSpec.Requires` and `Provides`. `Provide` submits
+the runtime value; `Get` reads the consumer generation's fixed binding.
 
 ## 2. Implement Plugin
 
-The plugin struct holds instance configuration and implements a stable `Spec()` plus `Start()` for one generation:
+The plugin struct stores decoded instance configuration and implements stable
+`Spec` metadata plus `Activate` for one generation:
 
 ```go
 type Writer struct {
@@ -43,7 +46,7 @@ func (p *Writer) Validate() error {
     return nil
 }
 
-func (p *Writer) Start(ctx context.Context, scope *gordis.Scope) error {
+func (p *Writer) Activate(ctx context.Context, scope *gordis.Scope) error {
     store, err := gordis.Get(scope, StoreKey)
     if err != nil {
         return err
@@ -52,31 +55,25 @@ func (p *Writer) Start(ctx context.Context, scope *gordis.Scope) error {
 }
 ```
 
-Register one prototype and create instances with `InstanceSpec`:
+Rules:
 
-```go
-host, err := gordis.NewHost(
-    []gordis.Plugin{new(Writer), storePlugin},
-    []gordis.InstanceSpec{{
-        ID: "writer-main", Plugin: "writer",
-        Config: json.RawMessage(`{"path":"hello","text":"world"}`),
-    }},
-)
-```
+- `Spec` ID, Requires, and Provides never depend on configuration.
+- `New` returns a fresh non-nil object that implements `Activate`, and only
+  sets deterministic defaults.
+- `Validate` is repeatable and side-effect free.
+- Successful `Activate` means the plugin is usable and has submitted every
+  declared Service.
+- Long-lived work uses `scope.Context()` through `scope.Go`, not the activation
+  context.
 
-Follow these rules:
+During preflight the Host creates a preparation object, checks its `Spec`,
+configuration, optional `Validate`, and `Activate` capability, then discards it.
+Activation creates a separate runtime object.
 
-- The ID, Requires, and Provides returned by `Spec()` must not depend on configuration.
-- `New()` returns a fresh non-nil object every time and may only set deterministic defaults.
-- `Validate()` is repeatable and side-effect free; it must not open resources or start work.
-- A successful `Start()` means the plugin is ready and has submitted every declared service.
-- Plugin and Service are separate concepts; a plugin may publish itself or another object.
+## 3. Own resources in Scope
 
-The Host creates, decodes, and validates separate objects for preflight and activation. Every preflight object is discarded.
-
-## 3. Provide services and own resources
-
-Create a resource in `Start`, register cleanup immediately, and publish the service last:
+Acquire a resource in `Activate`, register cleanup immediately, and publish it
+last:
 
 ```go
 store, err := openStore()
@@ -92,56 +89,100 @@ if err := scope.Defer("store", func(context.Context) error {
 return gordis.Provide[Store](scope, StoreKey, store)
 ```
 
-Common Scope APIs:
-
-- `scope.Go(name, fn)` starts a managed task; a non-cancellation error fails the instance.
-- `scope.OnStop(name, fn)` closes listeners, routes, subscriptions, or other entrances.
-- `scope.Acquire()` protects an admitted request; shutdown waits for its lease to release.
+- `scope.Go(name, fn)` owns a managed task; a non-cancellation error fails the
+  generation.
+- `scope.OnStop(name, fn)` closes listeners and other entrances first.
+- `scope.Acquire()` protects an admitted request while shutdown drains it.
 - `scope.Defer(name, fn)` releases final resources in reverse order.
-- `scope.Context()` is the runtime context for long-lived work.
 
-Do not use the startup context for long-lived tasks, and do not store services, Scopes, or unmanaged goroutines in cross-generation global state. If cleanup registration fails, the caller still owns the resource and must release it immediately.
+Do not retain Scope, services, or unmanaged goroutines across generations. If
+cleanup registration is rejected, the caller still owns the resource and must
+release it immediately.
 
-## 4. Assemble multiple instances
+## 4. Mount and isolate root instances
 
-Applications map slots when several instances provide the same contract:
+Register the fixed Plugin type catalog once, then mount desired instances:
 
 ```go
-specs := []gordis.InstanceSpec{
-    {ID: "store-main", Plugin: "store", Outputs: map[string]string{StoreKey.Name(): "store.primary"}},
-    {ID: "store-audit", Plugin: "store", Outputs: map[string]string{StoreKey.Name(): "store.audit"}},
-    {ID: "writer-main", Plugin: "writer", Inputs: map[string]string{StoreKey.Name(): "store.primary"}},
-    {ID: "writer-audit", Plugin: "writer", Inputs: map[string]string{StoreKey.Name(): "store.audit"}},
+host, err := gordis.NewHost([]gordis.Plugin{storePlugin, new(Writer)})
+if err != nil {
+    return err
+}
+defer host.Shutdown(context.Background())
+
+tenant := host.Env().Isolate(StoreKey, "tenant-a")
+writer, err := tenant.Mount(ctx, gordis.InstanceSpec{
+    ID: "writer", Plugin: "writer",
+    Config: json.RawMessage(`{"path":"hello","text":"world"}`),
+})
+if err != nil {
+    return err
+}
+_, err = tenant.Mount(ctx, gordis.InstanceSpec{ID: "store", Plugin: "store"})
+if err != nil {
+    return err
+}
+return writer.WaitReady(ctx)
+```
+
+The consumer may be mounted first: it stays Pending until a matching provider
+appears. `Env.Isolate` applies the same label to that Key's consumer and
+provider routes without exposing deployment labels to plugin code.
+
+Use `Instance.Update`, `Restart`, `WaitReady`, and `Unmount` for later control.
+Plugins may mount children owned by the current generation through
+`Scope.Env()`; stopping or replacing the parent recursively reclaims the old
+children. See [Dynamic Management](dynamic.md).
+
+## 5. Opt-in EventBus
+
+Register `&events.Plugin{}` in the Host catalog and mount one
+`events.PluginID` instance. Event users declare `events.BusKey.Spec()` in
+`Requires` and bind the current generation's Scope:
+
+```go
+var Changed = events.NewTopic[string]("example.changed/1")
+
+func (*observerPlugin) Spec() gordis.PluginSpec {
+    return gordis.PluginSpec{
+        ID:       "observer",
+        Requires: []gordis.ServiceSpec{events.BusKey.Spec()},
+        New:      func() gordis.Plugin { return new(observerPlugin) },
+    }
+}
+
+func (*observerPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
+    _, err := events.Bind(scope).On(Changed, observe,
+        events.Priority(10), events.Once())
+    return err
 }
 ```
 
-Plugin code knows only the shared Key, not deployment slot names. `Parent` expresses lifecycle ownership and does not replace Requires. An auxiliary child may set both `Parent` and `Optional: true`; its failure does not make the parent group's `GroupReady` false, but `Start` still reports the error and service dependencies remain required.
-
-## 5. Dynamic instances
-
-A running Host uses `Preview` and `Apply` to submit complete `InstanceSpec` values. A consumer that may wait for a missing service must set `AllowPending`; removing a provider while keeping consumers also requires `AllowWaitingConsumers` on the `Change`.
-
-A change may commit while an instance is still waiting, so use `WaitOperation` and `WaitReady` separately. See [Dynamic Instance Management](dynamic.md).
+Subscriptions belong to the subscriber Scope and are removed during cleanup.
+`Publish` uses bounded parallel delivery; `Emit` is stable and sequential;
+`Serial`/`Bail` select the first explicitly handled result; `Waterfall`
+composes middleware around a `Next` that may be called once and only before the
+current middleware returns. A call admitted before return is drained as part of
+the dispatch; retaining and calling `Next` afterward returns
+`events.ErrNextExpired`. `Env.Isolate` can partition a Topic independently from
+Service labels. Use a regular Service when a caller requires a particular
+responder.
 
 ## 6. Out-of-process plugins
 
-The business Plugin still uses only the root package's `Spec`, `Start`, `Get`, `Provide`, and Scope APIs. Assembly uses `processbridge.Adapter`, the child executable uses `processbridge.Serve`, and both sides describe cross-process methods and JSON DTOs with explicit `Binding` values.
+Business plugins use the same `Spec`, `Activate`, `Get`, `Provide`, and Scope
+APIs. Assembly uses `processbridge.Adapter`, the child executable uses
+`processbridge.Serve`, and explicit `Binding` values define JSON DTO and method
+wire behavior.
 
-Register the Adapter with the logical business plugin ID, not an execution-specific ID such as `greeter-process`. Consumers continue to require the same `Key[T]`; the Adapter publishes the proxy during `Start`.
+Register the Adapter with the logical business Plugin ID. Consumers continue to
+require the same `Key[T]`; the Adapter publishes a typed proxy during
+`Activate`. Only contracts with explicit request/response, cancellation, and
+error semantics should cross a process boundary. See
+[Process Protocol](process-protocol.md).
 
-Only contracts with clear request/response, cancellation, and error semantics should cross the process boundary. Process exit does not prove successful business cleanup; see [Process Protocol](process-protocol.md).
-
-Applications that deliver their own backend and UI after Host startup can implement one stable application contract. The remote Plugin starts its HTTP, gRPC, or other data plane inside its Scope and publishes private listeners through an `Endpoint` service. The Host supplies only a generic process Adapter, protocol Gateway, and UI Loader; it does not know application routes. Data-plane requests must still hold remote Scope leases so `OnStop` closes admission before the server drains and disposes. See [application-plugin](../examples/application-plugin/README.md).
-
-## Examples
-
-| Example | Focus |
-| --- | --- |
-| [basic](../examples/basic/README.md) | Shared services and instance configuration |
-| [composition](../examples/composition/README.md) | Slots, Parent, and multiple instances |
-| [optional](../examples/optional/README.md) | Optional subtrees and group readiness |
-| [lifecycle](../examples/lifecycle/README.md) | Tasks, leases, and cleanup order |
-| [dynamic](../examples/dynamic/README.md) | Runtime assembly and restore |
-| [process](../examples/process/README.md) | Typed process service |
-| [duplex](../examples/duplex/README.md) | Bidirectional Host/plugin calls |
-| [application-plugin](../examples/application-plugin/README.md) | Application-owned data plane and Host UI |
+Cross-process events likewise leave the business Plugin unchanged: it still
+uses `events.Bind(scope)`. Assembly registers matching `BindTopic`/`BindHook`
+values, explicit `EventCodec`s, and Publish/Subscribe directions in Adapter and
+Serve. Local-only events need no wire. A remote Plugin cannot use
+`Scope.Env().Mount` to create a child invisible to the Host.

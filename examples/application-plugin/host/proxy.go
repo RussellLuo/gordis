@@ -55,7 +55,7 @@ func (a *app) forward(w http.ResponseWriter, r *http.Request) {
 	}
 	ready := false
 	for _, s := range a.host.Snapshot() {
-		if s.ID == id && s.State == gordis.Ready && s.Generation == e.generation {
+		if s.QualifiedID == id && s.Phase == gordis.PhaseReady && s.Generation == e.generation {
 			ready = true
 		}
 	}

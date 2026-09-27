@@ -1,8 +1,8 @@
 # Dynamic instance management
 
-This example changes one running Host with `Preview` and `Apply`. A consumer
-waits for a missing provider, becomes ready when the provider appears, waits
-again when it is removed, and returns with a new generation after `Restore`.
+This example changes one running Host through a `ChangeSet`. It removes the
+provider of a ready consumer, observes the consumer return to `pending`, and
+uses `Operation.Restore` to bring both back with new generations.
 
 ## Run
 
@@ -15,23 +15,24 @@ go run ./examples/dynamic
 Expected output:
 
 ```text
-consumer: pending (generation 0)
 consumer generation 1 reads source generation 1
-consumer: ready (generation 1)
-consumer: pending (generation 1)
+consumer pending: source removed
 consumer generation 2 reads source generation 2
-consumer: ready (generation 2)
 ```
 
 ## How it works
 
-The initial Host is empty because static assembly is strict. A dynamic
-`consumer` instance uses `AllowPending`, so it can commit without its required
-`Source` service. Adding `source` activates both binding and consumer.
+`NewHost` registers a fixed plugin type catalog. The root Env mounts `source`
+and `consumer` and waits until both are ready, establishing the running state
+that the control-plane change will modify.
 
-Removing the provider requires `AllowWaitingConsumers`; the consumer returns
-to pending instead of being deleted. `Restore` reapplies the removed
-description as a new operation, producing new source and consumer generations.
+Removing the provider uses `ChangeSet.Unmount` followed by `ChangeSet.Apply`;
+the surviving consumer returns to pending instead of being deleted. The
+returned durable `Operation` is first awaited for convergence, then `Restore`
+reapplies the removed description as a new operation, producing new source and
+consumer generations. Consumer activation prints each ready generation; after
+the removal operation completes, the main flow reports the intentional
+`pending` transition without polling diagnostics.
 
 See [main.go](main.go) for the complete program and
 [Dynamic Instance Management](../../docs/dynamic.md) for operation semantics.

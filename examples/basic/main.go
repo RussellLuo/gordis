@@ -33,7 +33,7 @@ func (*greeterPlugin) Spec() gordis.PluginSpec {
 	}
 }
 
-func (*greeterPlugin) Start(_ context.Context, scope *gordis.Scope) error {
+func (*greeterPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
 	return gordis.Provide[Greeter](scope, greeterKey, new(greeterService))
 }
 
@@ -56,7 +56,7 @@ func (p *greetingPlugin) Validate() error {
 	return nil
 }
 
-func (p *greetingPlugin) Start(_ context.Context, scope *gordis.Scope) error {
+func (p *greetingPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
 	greeter, err := gordis.Get(scope, greeterKey)
 	if err != nil {
 		return err
@@ -65,21 +65,35 @@ func (p *greetingPlugin) Start(_ context.Context, scope *gordis.Scope) error {
 	return nil
 }
 
-func main() {
-	h, err := gordis.NewHost([]gordis.Plugin{new(greeterPlugin), new(greetingPlugin)}, []gordis.InstanceSpec{
-		{ID: "greeter", Plugin: "greeter"},
-		{ID: "alice", Plugin: "greeting", Config: json.RawMessage(`{"name":"Alice"}`)},
-		{ID: "bob", Plugin: "greeting", Config: json.RawMessage(`{"name":"Bob"}`)},
-	})
+func run() error {
+	h, err := gordis.NewHost([]gordis.Plugin{new(greeterPlugin), new(greetingPlugin)})
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
+	defer h.Shutdown(context.Background())
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err = h.Start(ctx); err != nil {
-		log.Fatal(err)
+
+	if _, err = h.Env().MountReady(ctx, gordis.InstanceSpec{ID: "greeter", Plugin: "greeter"}); err != nil {
+		return err
 	}
-	if err = h.Stop(ctx); err != nil {
+
+	if _, err = h.Env().MountReady(ctx, gordis.InstanceSpec{
+		ID: "alice", Plugin: "greeting", Config: json.RawMessage(`{"name":"Alice"}`),
+	}); err != nil {
+		return err
+	}
+	if _, err = h.Env().MountReady(ctx, gordis.InstanceSpec{
+		ID: "bob", Plugin: "greeting", Config: json.RawMessage(`{"name":"Bob"}`),
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func main() {
+	if err := run(); err != nil {
 		log.Fatal(err)
 	}
 }

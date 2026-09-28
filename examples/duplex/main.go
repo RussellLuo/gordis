@@ -1,52 +1,97 @@
-// The Host asks the plugin to add a number. While handling that request, the
-// plugin calls back to the Host for the base value.
+// This example shows a process Greeter providing one typed Service while using
+// a UserDirectory Service from the Host process.
 package main
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"os"
 	"time"
 
-	"github.com/RussellLuo/gordis/examples/duplex/contract"
+	"github.com/RussellLuo/gordis"
+	"github.com/RussellLuo/gordis/examples/duplex/greeter"
+	greeterproc "github.com/RussellLuo/gordis/examples/duplex/greeter/proc"
 	"github.com/RussellLuo/gordis/process"
 )
 
+type directoryPlugin struct{}
+
+func (*directoryPlugin) Spec() gordis.PluginSpec {
+	return gordis.PluginSpec{
+		ID:       "user-directory",
+		Provides: []gordis.ServiceSpec{greeter.UserDirectoryKey.Spec()},
+		New:      func() gordis.Plugin { return new(directoryPlugin) },
+	}
+}
+
+func (*directoryPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
+	return gordis.Provide(scope, greeter.UserDirectoryKey, greeter.UserDirectory(directoryService{}))
+}
+
+type directoryService struct{}
+
+func (directoryService) DisplayName(_ context.Context, userID string) (string, error) {
+	fmt.Printf("process Greeter → Host UserDirectory: displayName(%q)\n", userID)
+	return "Gordis", nil
+}
+
+type consumerPlugin struct{}
+
+func (*consumerPlugin) Spec() gordis.PluginSpec {
+	return gordis.PluginSpec{
+		ID:       "consumer",
+		Requires: []gordis.ServiceSpec{greeter.GreeterKey.Spec()},
+		New:      func() gordis.Plugin { return new(consumerPlugin) },
+	}
+}
+
+func (*consumerPlugin) Activate(ctx context.Context, scope *gordis.Scope) error {
+	service, err := gordis.Get(scope, greeter.GreeterKey)
+	if err != nil {
+		return err
+	}
+	fmt.Println(`Host consumer → process Greeter: greet("user-42")`)
+	greeting, err := service.Greet(ctx, "user-42")
+	if err != nil {
+		return err
+	}
+	fmt.Printf("result: %s\n", greeting)
+	return nil
+}
+
 func run(path string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	client, err := process.Start(ctx, process.Options{
-		Path: path, Identity: contract.Identity, Instance: "calculator", Generation: 1,
-		Handler: func(_ context.Context, _ process.Caller, method string, _ json.RawMessage) (any, error) {
-			if method != contract.BaseMethod {
-				return nil, &process.RPCError{Code: "method", Message: "unknown Host method"}
-			}
-			fmt.Println("plugin → Host: base()")
-			return 40, nil
-		},
+	remoteGreeter, err := greeterproc.New(func() (process.Options, error) {
+		return process.Options{Path: path}, nil
 	})
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("Host → plugin: add(2)")
-	var result int
-	callErr := client.Call(ctx, contract.AddMethod, 2, &result)
-	closeErr := client.Close(context.Background())
-	if err := errors.Join(callErr, closeErr); err != nil {
+	host, err := gordis.NewHost([]gordis.Plugin{
+		new(directoryPlugin), remoteGreeter, new(consumerPlugin),
+	})
+	if err != nil {
 		return err
 	}
-	if result != 42 {
-		return fmt.Errorf("got %d, want 42", result)
+	defer host.Shutdown(context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if _, err := host.Env().MountReady(ctx, gordis.InstanceSpec{
+		ID: "directory", Plugin: "user-directory",
+	}); err != nil {
+		return err
 	}
-	state := client.Snapshot()
-	if !state.Reaped || !state.IOComplete || !state.HandlersComplete {
-		return fmt.Errorf("plugin process was not fully reclaimed: %+v", state)
+	if _, err := host.Env().MountReady(ctx, gordis.InstanceSpec{
+		ID: "greeter", Plugin: greeter.PluginID,
+	}); err != nil {
+		return err
 	}
-	fmt.Printf("result: %d; plugin process reaped\n", result)
+	if _, err := host.Env().MountReady(ctx, gordis.InstanceSpec{ID: "consumer", Plugin: "consumer"}); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -58,3 +103,7 @@ func main() {
 		log.Fatal(err)
 	}
 }
+
+var _ gordis.Plugin = (*directoryPlugin)(nil)
+var _ gordis.Plugin = (*consumerPlugin)(nil)
+var _ greeter.UserDirectory = directoryService{}

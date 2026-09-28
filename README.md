@@ -37,14 +37,13 @@ func (*greeterPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
 }
 
 func main() {
-	ctx := context.Background()
 	host, err := gordis.NewHost([]gordis.Plugin{new(greeterPlugin)})
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer host.Shutdown(context.Background())
 
-	if _, err := host.Env().MountReady(ctx, gordis.InstanceSpec{
+	if _, err := host.Env().MountReady(context.Background(), gordis.InstanceSpec{
 		ID: "greeter", Plugin: "greeter",
 	}); err != nil {
 		log.Fatal(err)

@@ -23,7 +23,7 @@
 | --- | --- |
 | [process](process/README.zh.md) | 由外部进程实现的类型化 Service |
 | [process events](process-events/README.zh.md) | 由外部进程发布的类型化 Topic |
-| [duplex](duplex/README.zh.md) | 更底层的双向进程协议 |
+| [duplex](duplex/README.zh.md) | 进程外 Plugin 同时消费和提供类型化 Service |
 
 ## 应用集成
 

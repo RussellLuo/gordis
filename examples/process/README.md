@@ -2,11 +2,9 @@
 
 English | [中文](README.zh.md)
 
-This example starts an empty Host, mounts an independently built Greeter
-plugin, calls its typed service, and reaps the child process during shutdown.
-
-The Host imports only the shared contract and wire adapter. The Greeter
-implementation is not linked into the Host binary.
+This example runs a regular Local-first Greeter Plugin in a child process. The
+optional process boundary lives in `greeter/proc`; the Plugin ID, configuration,
+typed `greeter.Key`, and consumer remain the same as in local mode.
 
 ## Run
 
@@ -14,36 +12,29 @@ From the repository root:
 
 ```sh
 go build -o /tmp/gordis-process-host ./examples/process
-go build -o /tmp/gordis-process-plugin ./examples/process/plugin
+go build -o /tmp/gordis-process-plugin ./examples/process/cmd/greeter-plugin
 /tmp/gordis-process-host /tmp/gordis-process-plugin
 ```
 
-Expected output, with different PIDs on each run:
+Expected output:
 
 ```text
-host PID <host-pid> started without a plugin
-plugin PID <plugin-pid> started
 Hello, Gordis!
-plugin process reaped
 ```
 
 ## How it works
 
-The Host registers a generic `processbridge.Adapter` under the logical plugin
-ID `greeter`. The root Env mounts the provider and consumer with the same
-`MountReady` API used by Local plugins. The adapter starts the child process
-and exposes its RPC binding as the typed `Greeter` service. Consumers
-depend only on `GreeterKey`, so they do not need to know whether the provider is
-local or runs in another process. The consumer calls and prints the greeting
-directly from its `Activate` method.
+`greeter/plugin.go` defines an ordinary business Plugin with no process-specific
+dependencies. The Host registers the process-backed prototype returned by
+`greeterproc.New`; mounting it with `MountReady` starts the child executable and
+forwards `InstanceSpec.Config` to the same Plugin through `greeterproc.Serve`.
 
-Key files:
+The explicit binding in `greeter/proc` exposes the remote Greeter as the typed
+`greeter.Key`, so the consumer uses the normal `gordis.Get` API without knowing
+where the provider runs. Registering `new(greeter.Plugin)` instead switches to
+Local mode without changing the `InstanceSpec`, configuration, or consumer.
+When `run` returns, `Host.Shutdown` stops and reaps the child process.
 
-- [main.go](main.go): Host assembly and late plugin attachment.
-- [plugin/main.go](plugin/main.go): Greeter plugin process.
-- [contract/contract.go](contract/contract.go): shared typed contract.
-- [contract/wire/wire.go](contract/wire/wire.go): RPC binding.
-
-See [duplex](../duplex/README.md) for bidirectional process calls and
-[application-plugin](../application-plugin/README.md) for a backend and UI
-delivered together.
+See [duplex](../duplex/README.md) for an external Plugin that both consumes and
+provides typed Services, and [application-plugin](../application-plugin/README.md)
+for a backend and UI delivered together.

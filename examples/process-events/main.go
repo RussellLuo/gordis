@@ -1,13 +1,11 @@
-// This example receives a typed event published by a separately built process
-// plugin, then stops and reaps that process.
+// This example receives a typed event from a regular Notice Plugin running in
+// a separately built process.
 //
-// Build and run from the repository root as shown in
-// examples/process-events/README.md.
+// Build and run from the repository root as shown in README.md.
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -15,14 +13,13 @@ import (
 
 	"github.com/RussellLuo/gordis"
 	"github.com/RussellLuo/gordis/events"
-	"github.com/RussellLuo/gordis/examples/process-events/contract"
-	"github.com/RussellLuo/gordis/examples/process-events/contract/wire"
+	"github.com/RussellLuo/gordis/examples/process-events/notice"
+	noticeproc "github.com/RussellLuo/gordis/examples/process-events/notice/proc"
 	"github.com/RussellLuo/gordis/process"
-	"github.com/RussellLuo/gordis/processbridge"
 )
 
 type noticeObserverPlugin struct {
-	received chan<- contract.Notice
+	received chan<- notice.Notice
 }
 
 func (p *noticeObserverPlugin) Spec() gordis.PluginSpec {
@@ -36,10 +33,10 @@ func (p *noticeObserverPlugin) Spec() gordis.PluginSpec {
 }
 
 func (p *noticeObserverPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
-	_, err := events.Bind(scope).On(contract.NoticeTopic, func(ctx context.Context, notice contract.Notice) error {
-		fmt.Printf("received from process: %s\n", notice.Message)
+	_, err := events.Bind(scope).On(notice.Topic, func(ctx context.Context, event notice.Notice) error {
+		fmt.Printf("received notice: %s\n", event.Message)
 		select {
-		case p.received <- notice:
+		case p.received <- event:
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()
@@ -49,23 +46,10 @@ func (p *noticeObserverPlugin) Activate(_ context.Context, scope *gordis.Scope) 
 }
 
 func run(path string) error {
-	received := make(chan contract.Notice, 1)
-	var child *process.Client
-	remotePublisher, err := (processbridge.Adapter{
-		ID:     "remote-publisher",
-		Events: []processbridge.EventBinding{wire.Notice},
-		Resolve: func(json.RawMessage) (process.Options, error) {
-			return process.Options{
-				Path: path,
-				Identity: process.Identity{
-					Protocol: process.Protocol,
-					Package:  contract.Package,
-					Version:  contract.Version,
-				},
-			}, nil
-		},
-		OnClient: func(c *process.Client) { child = c },
-	}).Plugin()
+	received := make(chan notice.Notice, 1)
+	remotePublisher, err := noticeproc.New(func() (process.Options, error) {
+		return process.Options{Path: path}, nil
+	})
 	if err != nil {
 		return err
 	}
@@ -83,40 +67,22 @@ func run(path string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if _, err = host.Env().MountReady(ctx, gordis.InstanceSpec{
-		ID: "events", Plugin: events.PluginID,
-	}); err != nil {
+	if _, err := host.Env().MountReady(ctx, gordis.InstanceSpec{ID: "events", Plugin: events.PluginID}); err != nil {
 		return err
 	}
-	if _, err = host.Env().MountReady(ctx, gordis.InstanceSpec{
-		ID: "notice-observer", Plugin: "notice-observer",
-	}); err != nil {
+	if _, err := host.Env().MountReady(ctx, gordis.InstanceSpec{ID: "notice-observer", Plugin: "notice-observer"}); err != nil {
 		return err
 	}
-	if _, err = host.Env().MountReady(ctx, gordis.InstanceSpec{
-		ID: "remote-publisher", Plugin: "remote-publisher",
-	}); err != nil {
+	if _, err := host.Env().MountReady(ctx, gordis.InstanceSpec{ID: "notice-publisher", Plugin: notice.PluginID}); err != nil {
 		return err
 	}
 
 	select {
 	case <-received:
+		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-
-	if err = host.Shutdown(ctx); err != nil {
-		return err
-	}
-	if child == nil {
-		return fmt.Errorf("plugin process was not started")
-	}
-	state := child.Snapshot()
-	if !state.Reaped || !state.IOComplete || !state.HandlersComplete {
-		return fmt.Errorf("plugin process was not fully reclaimed: %+v", state)
-	}
-	fmt.Println("plugin process reaped")
-	return nil
 }
 
 func main() {

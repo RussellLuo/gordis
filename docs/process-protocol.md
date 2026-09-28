@@ -8,6 +8,11 @@ The current protocol identifier is `gordis.process/1`, and both peers must match
 
 ## Usage
 
+Ordinary business Plugins should prefer `processbridge` below and continue to
+use typed Services with `Requires` and `Provides`. Direct `process` usage is
+mainly for implementing Adapters, wire bindings, protocol integrations, or an
+explicit Host capability outside the Gordis Service graph.
+
 The Host starts the process and explicitly exports the methods that the plugin may call:
 
 ```go
@@ -29,11 +34,28 @@ err := process.Serve(ctx, os.Stdin, os.Stdout, identity, process.Limits{}, proce
 })
 ```
 
-`process.Caller.Call(ctx, method, params, result)` is safe for concurrent use. Initialization may call the Host, and a handler may make a nested call to its peer, but applications must avoid recursive calls and wait cycles.
+A nested call travels both ways over the same session:
 
-Executable coverage lives in [process tests](../process) for protocol and nested
-duplex calls, plus [processbridge tests](../processbridge) for typed Service,
-event federation, Env integration, lifecycle, crash, and cleanup behavior.
+```text
+Host Client.Call
+  → plugin Handler.Call
+      → plugin Caller.Call
+          → Host Options.Handler
+      ← callback result
+  ← plugin result
+```
+
+`process.Caller.Call(ctx, method, params, result)` is safe for concurrent use.
+Initialization may call the Host, and a handler may make a nested call to its
+peer, but applications must avoid recursive calls and wait cycles.
+
+Concrete executable coverage includes:
+
+- [the child `Serve` and `Caller` handler](../process/client_test.go#L97-L124);
+- [`TestDuplexInitializationNestedCallsAndCorrelation`](../process/duplex_test.go#L32-L64),
+  covering nested calls, concurrency, and request correlation;
+- [`TestPluginLifecycleConsistency`](../processbridge/execution_test.go#L242-L369),
+  covering typed `Requires + Provides`, lifecycle, and cleanup.
 
 ## Wire protocol
 

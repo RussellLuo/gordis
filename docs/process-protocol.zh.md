@@ -8,6 +8,10 @@
 
 ## 使用方式
 
+普通业务 Plugin 应优先使用后文的 `processbridge`，继续通过类型化 Service 和
+`Requires`/`Provides` 工作。直接使用 `process` 主要适合实现 Adapter、wire binding、协议集成，
+或者显式暴露不属于 Gordis Service 图的 Host capability。
+
 Host 启动子进程，并显式提供插件可以调用的方法：
 
 ```go
@@ -29,11 +33,27 @@ err := process.Serve(ctx, os.Stdin, os.Stdout, identity, process.Limits{}, proce
 })
 ```
 
-`process.Caller.Call(ctx, method, params, result)` 可并发使用。初始化期间也可以回调 Host；处理器还可以嵌套调用对端，但不应形成递归调用或等待环。
+一次嵌套调用沿同一个 session 往返：
 
-可执行证据位于 [process 测试](../process)（协议与嵌套 duplex call）和
-[processbridge 测试](../processbridge)（类型化 Service、Event federation、Env 集成、
-生命周期、崩溃与清理）。
+```text
+Host Client.Call
+  → plugin Handler.Call
+      → plugin Caller.Call
+          → Host Options.Handler
+      ← callback result
+  ← plugin result
+```
+
+`process.Caller.Call(ctx, method, params, result)` 可并发使用。初始化期间也可以回调 Host；
+处理器还可以嵌套调用对端，但不应形成递归调用或等待环。
+
+具体的可执行证据包括：
+
+- [子进程 `Serve` 与 `Caller` handler](../process/client_test.go#L97-L124)；
+- [`TestDuplexInitializationNestedCallsAndCorrelation`](../process/duplex_test.go#L32-L64)，
+  验证嵌套调用、并发和请求关联；
+- [`TestPluginLifecycleConsistency`](../processbridge/execution_test.go#L242-L369)，
+  验证类型化 `Requires + Provides`、生命周期和清理。
 
 ## 线协议
 

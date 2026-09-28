@@ -25,7 +25,7 @@ and an explanation of the implementation.
 | --- | --- |
 | [process](process/README.md) | A typed Service implemented by an external process |
 | [process events](process-events/README.md) | A typed Topic published by an external process |
-| [duplex](duplex/README.md) | The lower-level bidirectional process protocol |
+| [duplex](duplex/README.md) | An external Plugin consuming and providing typed Services |
 
 ## Application integration
 

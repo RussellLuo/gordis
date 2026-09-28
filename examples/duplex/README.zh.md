@@ -1,11 +1,13 @@
-# 双向进程调用
+# 双向进程 Service
 
 [English](README.md) | 中文
 
-本示例展示单个 stdio session 上的一次嵌套调用。Host 调用插件的 `add(2)` 方法。
-插件在处理该请求时又调用 Host 的 `base()` 方法，收到 `40` 后返回 `42`。
+本示例展示进程外 Plugin 同时消费和提供类型化 Service。Host 中的 consumer 调用进程外
+Greeter 的 `Greet("user-42")`；Greeter 在处理该请求时通过 `Requires` 调用 Host 中的
+`UserDirectory.DisplayName("user-42")`，得到 `Gordis` 后返回 `Hello, Gordis!`。
 
-它直接使用进程协议，不涉及 UI、HTTP 或 Gordis 服务图。
+业务 Plugin 仍使用普通的 `Spec`、`Activate`、`Get` 和 `Provide`；双向进程通信由
+`processbridge` 的显式 binding 完成。
 
 ## 运行
 
@@ -13,29 +15,40 @@
 
 ```sh
 go build -o /tmp/gordis-duplex-host ./examples/duplex
-go build -o /tmp/gordis-duplex-plugin ./examples/duplex/plugin
+go build -o /tmp/gordis-duplex-plugin ./examples/duplex/cmd/greeter-plugin
 /tmp/gordis-duplex-host /tmp/gordis-duplex-plugin
 ```
 
 预期输出：
 
 ```text
-Host → plugin: add(2)
-plugin → Host: base()
-result: 42; plugin process reaped
+Host consumer → process Greeter: greet("user-42")
+process Greeter → Host UserDirectory: displayName("user-42")
+result: Hello, Gordis!
 ```
 
 ## 实现原理
 
-Host 在 `process.Options` 中提供 callback handler，并通过 `client.Call` 调用插件。
-插件通过 `process.Handler.Call` 处理该请求，并使用获得的 `process.Caller` 回调 Host。
-双方共享 contract 包中的方法名和身份元数据。协议消息使用 stdout；插件日志应使用 stderr。
+`greeter.Plugin` 声明 `Requires: UserDirectoryKey` 和 `Provides: GreeterKey`。Host Adapter
+为 `UserDirectoryKey` 建立 Host handler，并把远端 `Greeter` 作为同一个 `GreeterKey` 下的
+类型化代理发布。子进程中的 `Serve` 为 `UserDirectoryKey` 注入 client proxy，并为真实
+`Greeter` 建立 handler。
+
+因此调用链保持在普通 Service 模型中：
+
+```text
+Host consumer → remote Greeter → Host UserDirectory → remote Greeter → Host consumer
+```
+
+将 Host 登记的 process prototype 换成 `new(greeter.Plugin)`，即可切换到 Local 模式；
+Greeter、UserDirectory provider 和 consumer 的业务代码都无需改变。
 
 关键文件：
 
-- [main.go](main.go)：启动进程并处理 Host callback。
-- [plugin/main.go](plugin/main.go)：处理插件调用并回调 Host。
-- [contract/contract.go](contract/contract.go)：共享协议标识符。
+- [main.go](main.go)：装配 Host UserDirectory、进程外 Greeter 和本地 consumer。
+- [greeter/plugin.go](greeter/plugin.go)：不依赖进程能力的普通业务 Plugin。
+- [greeter/proc/bridge.go](greeter/proc/bridge.go)：`UserDirectory` 与 `Greeter` 的双向 binding。
+- [cmd/greeter-plugin/main.go](cmd/greeter-plugin/main.go)：子进程入口。
 
-由子进程支撑的类型化 Gordis 服务见 [process](../process/README.zh.md)；协议细节见
-[进程协议](../../docs/process-protocol.zh.md)。
+更基础的单向 Process Service 见 [process](../process/README.zh.md)；底层 stdio RPC 及嵌套
+调用约束见[进程协议](../../docs/process-protocol.zh.md)。

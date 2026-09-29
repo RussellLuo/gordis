@@ -76,15 +76,22 @@ Plugin code still uses only `StoreKey`; it does not know visibility labels. The
 Host requires one provider per `(Key, label)` and an exact contract-name and Go
 type match at both ends.
 
-## Ownership and service dependencies
+## Ownership, service dependencies, and visibility
 
-Every `host.Env().Mount` instance is owned by the synthetic root and drained by
-`Shutdown`. A plugin can mount children through `scope.Env()`; those children
-belong to that exact parent generation and are reclaimed when it stops or is
-replaced. `PluginSpec.Requires` independently expresses service dependency, so
-consumers clean up before providers. Ownership does not imply a readiness
-dependency: a pending or failed child does not change its owner's phase or
-`WaitReady` result unless the owner explicitly requires a Service it provides.
+Gordis has three independent relationships:
+
+| Relationship | Expressed by | What it controls |
+| --- | --- | --- |
+| Lifecycle ownership | The `Env` used to `Mount` | Generation affiliation, recursive stop, and child-first cleanup |
+| Service dependency | `PluginSpec.Requires` / `Provides` | Pending, activation, fixed binding, and consumer-first cleanup |
+| Service visibility | `Env.Isolate(Key, label)` | Which `(Key, label)` providers are eligible below that Env |
+
+Instances mounted from `host.Env()` belong to the synthetic root; children
+mounted from `scope.Env()` belong to the current parent generation. Ownership
+does not imply readiness: a pending or failed child does not change its owner's
+phase or `WaitReady` result unless the owner explicitly requires a Service from
+it. Isolate derives an immutable visibility View; it does not create a new
+lifecycle owner.
 
 ## State, readiness, and waiting
 
@@ -109,37 +116,32 @@ target pinned by the operation, but does not recursively add their children.
 
 ## Application readiness gates
 
-When an application needs a minimum set of capabilities, model the check as a
-normal plugin that requires those Services:
-
-```go
-func (*applicationReady) Spec() gordis.PluginSpec {
-    return gordis.PluginSpec{
-        ID: "application-ready",
-        Requires: []gordis.ServiceSpec{
-            DatabaseKey.Spec(), SchedulerKey.Spec(), HTTPServerKey.Spec(),
-        },
-        New: func() gordis.Plugin { return new(applicationReady) },
-    }
-}
-```
-
-Mount providers first, then call `MountReady` for this gate. The gate becomes
-pending whenever one of its required Services is unavailable. Startup tooling
-can inspect provider failures and `Snapshot.BlockedBy`/`BlockedLabels` when the
-gate cannot become ready; subtree health aggregation is not a core state.
+When an application needs a minimum set of capabilities, mount an ordinary
+plugin that requires those Services, then call `MountReady` for that gate. The
+gate remains pending while any required Service is unavailable. Startup tooling
+can inspect provider failures and `Snapshot.BlockedBy`/`BlockedLabels` for
+diagnostics; ownership-subtree health aggregation is not a core state.
 
 ## Scope and resource ownership
 
-A Scope belongs to exactly one generation:
+A Scope belongs to exactly one generation. Its APIs form one path from dependency
+access and work admission to shutdown cleanup:
 
-- `Get` reads the generation's fixed service binding.
-- `Go` starts a managed task.
-- `Acquire` holds a lease for an admitted request.
-- `OnStop` closes public entrances first.
-- `Defer` releases final resources in reverse order after tasks and leases exit.
+| Role | API | Semantics |
+| --- | --- | --- |
+| Read a dependency | `gordis.Get(scope, key)` | Read the Service binding fixed when this generation started |
+| Manage a long-running task | `scope.Go` / `scope.AfterReady` | Start a Scope-supervised task; the latter waits for this generation to become Ready |
+| Protect admitted work | `scope.Acquire` / `scope.AcquireReady` | Hold a manually released request lease; the latter also rejects calls before Ready |
+| Withdraw entrances | `scope.OnStop` | Close listeners, routes, subscriptions, and other entrances before task cancellation |
+| Release final resources | `scope.Defer` | Release resources in reverse order after tasks and leases exit |
 
-Long-running tasks use the Scope runtime context, not the startup context. Service references, Scopes, and background goroutines must not escape into cross-generation global state. See [Lifecycle](lifecycle.md) for the exact sequence.
+`Get` is a package-level generic function that receives a Scope, not a Scope
+method. The Scope fixes its binding and lifetime. `Go` creates and supervises a
+goroutine; `Acquire` does not create one, but admits caller-owned work into the
+same shutdown drain barrier. Long-running tasks use the Scope runtime context,
+not the startup context. Service references, Scopes, and background goroutines
+must not escape into cross-generation global state. See
+[Lifecycle](lifecycle.md) for the exact shutdown sequence.
 
 ## Out-of-process execution
 

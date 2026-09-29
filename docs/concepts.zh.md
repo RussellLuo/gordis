@@ -74,13 +74,20 @@ tenantB := host.Env().Isolate(StoreKey, "tenant-b")
 插件内部仍只使用 `StoreKey`，不需要知道可见性标签。Host 要求同一 `(Key, label)` 只有一个
 provider，且两端契约名称与 Go 类型完全一致。
 
-## 所有权与服务依赖
+## 所有权、服务依赖与可见性
 
-所有通过 `host.Env().Mount` 创建的实例都由 synthetic root 拥有，并在 `Shutdown` 时排空。
-Plugin 可以通过 `scope.Env()` 挂载 child；child 属于当前 parent generation，在 parent 停止或
-换代时被回收。`PluginSpec.Requires` 独立表达服务依赖，保证 consumer 先于 provider 清理。
-ownership 不蕴含 readiness 依赖：Pending 或失败的 child 不会改变 owner 的 Phase 或
-`WaitReady` 结果；只有 owner 显式 Requires child 提供的 Service 时才会形成可用性依赖。
+Gordis 中有三种彼此独立的关系：
+
+| 关系 | 表达方式 | 决定什么 |
+| --- | --- | --- |
+| 生命周期所有权 | 从哪个 `Env` 执行 `Mount` | generation 归属、递归停止与 child-first 清理 |
+| Service 依赖 | `PluginSpec.Requires` / `Provides` | Pending、激活条件、固定 binding 与 consumer-first 清理 |
+| Service 可见性 | `Env.Isolate(Key, label)` | 当前 Env 下哪些 `(Key, label)` provider 可被选择 |
+
+`host.Env()` 挂载的实例由 synthetic root 拥有；`scope.Env()` 挂载的 child 属于当前 parent
+generation。ownership 不蕴含 readiness 依赖：Pending 或失败的 child 不会改变 owner 的
+Phase 或 `WaitReady` 结果，除非 owner 显式 Requires child 提供的 Service。Isolate 只派生
+不可变的可见性 View，不创建新的生命周期所有者。
 
 ## 状态、就绪与等待
 
@@ -104,35 +111,27 @@ operation 固定的每个 exact target，但不会递归加入它们的 children
 
 ## 应用级 readiness gate
 
-应用需要判断一组最低能力是否可用时，用一个普通 Plugin Requires 这些 Service：
-
-```go
-func (*applicationReady) Spec() gordis.PluginSpec {
-    return gordis.PluginSpec{
-        ID: "application-ready",
-        Requires: []gordis.ServiceSpec{
-            DatabaseKey.Spec(), SchedulerKey.Spec(), HTTPServerKey.Spec(),
-        },
-        New: func() gordis.Plugin { return new(applicationReady) },
-    }
-}
-```
-
-先 Mount providers，再对 gate 调用 `MountReady`。任何 required Service 不可用时 gate 都会
-保持 Pending；启动工具可结合 provider Failure 及 Snapshot 的 `BlockedBy`/`BlockedLabels`
-诊断原因。Core 不再维护 ownership subtree 的聚合健康状态。
+应用需要判断一组最低能力是否可用时，可以挂载一个普通 Plugin，让它 Requires 这些
+Service，再对该 gate 调用 `MountReady`。任何 required Service 不可用时 gate 都会保持
+Pending；启动工具可结合 provider Failure 及 Snapshot 的 `BlockedBy`/`BlockedLabels`
+诊断原因。Core 不维护 ownership subtree 的聚合健康状态。
 
 ## Scope 与资源归属
 
-`Scope` 只属于一个实例的一代：
+`Scope` 只属于一个实例的一代。围绕它的 API 形成一条从依赖访问、工作准入到停止清理的链路：
 
-- `Get` 读取本代启动时固定的服务绑定。
-- `Go` 启动受管任务。
-- `Acquire` 为已进入的请求持有租约。
-- `OnStop` 先关闭入口。
-- `Defer` 在任务和租约退出后逆序释放资源。
+| 作用 | API | 语义 |
+| --- | --- | --- |
+| 读取依赖 | `gordis.Get(scope, key)` | 读取本代启动时固定的 Service binding |
+| 管理长期任务 | `scope.Go` / `scope.AfterReady` | 启动由 Scope 监督的任务；后者等待本代 Ready 后再启动 |
+| 保护已准入工作 | `scope.Acquire` / `scope.AcquireReady` | 持有手动释放的请求租约；后者还会拒绝 Ready 前的调用 |
+| 撤回入口 | `scope.OnStop` | 在取消任务前关闭 listener、route 或 subscription 等入口 |
+| 最终释放 | `scope.Defer` | 在任务和租约退出后逆序释放资源 |
 
-长期任务使用 Scope 的运行 context，不使用启动 context。服务引用、Scope 和后台 goroutine 都不应逃逸到跨代全局状态。完整顺序见[生命周期](lifecycle.zh.md)。
+`Get` 是接收 Scope 参数的包级泛型函数，不是 Scope 方法；Scope 为它限定固定 binding 和有效
+生命周期。`Go` 创建并监督 goroutine，`Acquire` 不创建 goroutine，只让调用方正在执行的工作
+进入同一个停止排空屏障。长期任务使用 Scope 的运行 context，不使用启动 context；服务引用、
+Scope 和后台 goroutine 都不应逃逸到跨代全局状态。精确停止顺序见[生命周期](lifecycle.zh.md)。
 
 ## 进程外执行
 

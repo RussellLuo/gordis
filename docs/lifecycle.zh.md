@@ -17,7 +17,8 @@ pending / stopped
 ```
 
 Host 先激活 provider，再激活 consumer。`Activate` 返回前，插件必须完成必要握手、提交声明的
-服务并达到可用状态；长期任务交给 `Scope.Go`。
+服务并达到可用状态；长期任务交给 `Scope.Go`。必须等本代 Ready 后才能开始的任务使用
+`Scope.AfterReady`。
 
 预检与激活使用相同的配置准备流程，但预检对象会被丢弃。`New` 和 `Validate` 不得创建资源，资源只在 `Activate` 中创建并登记。
 
@@ -32,10 +33,10 @@ Host 先激活 provider，再激活 consumer。`Activate` 返回前，插件必�
 
 Host 先冻结整个影响闭包，再执行用户回调：
 
-1. 所有受影响 Scope 拒绝新的任务、租约和资源登记。
+1. 所有受影响 Scope 拒绝新的 `Get` / `Provide`、任务、租约和清理登记。
 2. 逆拓扑执行 `OnStop`，关闭路由、监听器或订阅入口。
 3. 取消 Scope 的运行 context。
-4. 等待 `Scope.Go` 任务和 `Acquire` 租约退出。
+4. 等待 `Scope.Go` / `AfterReady` 任务和 `Acquire` / `AcquireReady` 租约退出。
 5. 逆序执行 `Defer`，最后撤销服务和依赖引用。
 
 这保证消费者先于提供者、子实例先于父实例释放。`OnStop` 只负责关闭入口；数据库连接、进程和其他最终资源放在 `Defer`。
@@ -50,7 +51,13 @@ if err != nil {
 defer release()
 ```
 
-没有租约保护的裸服务引用不受停止流程保护。清理回调应使用启动时已经取得的固定依赖，不应重新调用 `Get`。
+`Go` 创建并监督 goroutine：停止时 Scope 取消其运行 context，并等待任务返回。`Acquire` 不创建
+或取消 goroutine；调用方自己执行工作，并负责调用幂等的 `release`。如果遗漏 `release`，后台
+清理会持续等待该租约。必须在本代 Ready 后才接受的公开入口可以改用 `AcquireReady`。
+
+没有租约保护的裸服务引用不受停止流程保护。`gordis.Get` 是接收 Scope 的包级函数；Scope
+冻结后再次调用会返回 `ErrClosed`。清理回调应使用启动时已经取得的固定依赖，不应重新调用
+`Get`。
 
 ## 超时与残留
 

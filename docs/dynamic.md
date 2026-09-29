@@ -96,10 +96,11 @@ required binding becomes unresolved, those consumers are drained and enter
 `pending`, just as they do after a provider runtime failure. Mounting a matching
 provider lets the Host converge them again.
 
-## Bulk changes and recovery
+## Bulk changes and recovery (advanced)
 
-Loaders and other control planes submit cross-instance changes through
-`ChangeSet.Apply → Operation`:
+Ordinary applications should prefer the `Env` and `Instance` operations above.
+Loaders and other control planes that must atomically change multiple instances
+use `ChangeSet.Apply → Operation`:
 
 ```go
 changes := host.Changes()
@@ -110,7 +111,6 @@ changes.Update(reader, readerConfig)
 
 operation, err := changes.Apply(ctx)
 if err != nil {
-    // An accepted operation remains observable after a context timeout.
     return err
 }
 mounted := operation.Mounted() // ChangeSet.Mount registration order
@@ -127,6 +127,11 @@ activation may still be running or normally Pending on a missing required
 binding. `Operation.Wait` observes convergence completion, while
 `Operation.WaitReady` waits for all exact revisions explicitly pinned by that
 operation to become Ready; it does not recursively wait for their children.
+
+If the caller context expires after acceptance, `Apply` returns both a non-nil
+`Operation` and the context error. A control plane that needs observation after
+that timeout retains the Operation and calls `Wait` with a fresh context;
+ordinary request paths can return the error directly.
 
 The affected closure remains available from `Operation.Snapshot` for
 diagnostics and application-level audit. An application that needs approval or

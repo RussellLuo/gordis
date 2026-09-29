@@ -81,14 +81,8 @@ required Service 暂缺时逻辑 Instance 自动进入 `pending`；挂载 provid
 ownership 与 readiness 明确分离：child 随 owner generation 换代和清理；实例是否能 Ready
 只由显式声明的 Service 依赖决定。
 
-Loader 或其他管理面使用 `Host.Changes()` 构造跨实例变更，再由 `ChangeSet.Apply` 校验并
-原子提交完整候选图；返回的 Operation 分别观察提交、收敛完成与其显式 targets 是否
-Ready。核心不读取配置文件或维护另一棵 Loader runtime graph。
-
-`processbridge` 可以从子进程提供同一服务契约，而消费者无需改变。
-
-可选的 `events` 包提供由 Scope 拥有的类型化 Topic/Hook，支持 Local 与 Process 投递、稳定
-顺序、有界并行、响应选择和 waterfall。
+管理面可以通过 `Host.Changes()` 原子提交跨实例变更。可选的 `events` 与 `processbridge`
+沿用相同的 Service、Scope 和生命周期模型；核心不读取配置文件或维护另一棵 Loader 图。
 
 ## 示例
 
@@ -97,11 +91,11 @@ Ready。核心不读取配置文件或维护另一棵 Loader runtime graph。
 
 ## 文档
 
-- [核心概念](docs/concepts.zh.md)：对象、服务绑定、所有权与依赖。
-- [插件编写](docs/plugin-authoring.zh.md)：契约、清理与进程适配。
-- [生命周期](docs/lifecycle.zh.md)：启动、排空、失败传播与诊断。
-- [动态实例管理](docs/dynamic.zh.md)：运行时变更、等待与恢复。
-- [进程协议](docs/process-protocol.zh.md)：双向 RPC 与远端清理。
+- [核心概念](docs/concepts.zh.md)：建议首先阅读，对象、所有权、Service 依赖与可见性的整体关系。
+- [插件编写](docs/plugin-authoring.zh.md)：契约、资源管理与应用装配。
+- [生命周期](docs/lifecycle.zh.md)：启动、排空、失败传播与诊断参考。
+- [动态实例管理](docs/dynamic.zh.md)：单实例操作、批量变更、等待与恢复。
+- [进程协议](docs/process-protocol.zh.md)：按需阅读的双向 RPC 与远端清理进阶参考。
 
 ## 能力边界
 

@@ -88,18 +88,10 @@ Ownership and readiness are deliberately separate: a child follows its owner
 generation for restart and cleanup, but only declared Service dependencies
 decide whether an instance can become ready.
 
-Loaders and other control planes use `Host.Changes()` to build cross-instance
-changes and `ChangeSet.Apply` to validate and atomically commit the complete
-candidate. The returned Operation observes commit, convergence completion, and
-readiness of its explicit targets separately. The core does not read
-configuration files or maintain a second Loader runtime graph.
-
-`processbridge` can provide the same service contract from a child process
-without changing consumers.
-
-The optional `events` package provides Scope-owned typed Topics/Hooks with
-local and Process delivery, stable ordering, bounded parallelism, selection,
-and waterfall dispatch.
+Control planes can use `Host.Changes()` to atomically commit cross-instance
+changes. The optional `events` and `processbridge` packages follow the same
+Service, Scope, and lifecycle model; the core does not read configuration files
+or maintain a second Loader graph.
 
 ## Examples
 
@@ -110,16 +102,16 @@ application integration.
 
 ## Documentation
 
-- [Core Concepts](docs/concepts.md): objects, service bindings, ownership, and
-  dependencies.
-- [Writing Plugins](docs/plugin-authoring.md): contracts, cleanup, and process
-  adaptation.
-- [Lifecycle](docs/lifecycle.md): startup, draining, failure propagation, and
-  diagnostics.
-- [Dynamic Instance Management](docs/dynamic.md): runtime changes, waiting, and
-  restore.
-- [Process Protocol](docs/process-protocol.md): bidirectional RPC and remote
-  cleanup.
+- [Core Concepts](docs/concepts.md): start here for the complete relationship
+  among objects, ownership, Service dependencies, and visibility.
+- [Writing Plugins](docs/plugin-authoring.md): contracts, resource management,
+  and application assembly.
+- [Lifecycle](docs/lifecycle.md): reference for startup, draining, failure
+  propagation, and diagnostics.
+- [Dynamic Instance Management](docs/dynamic.md): single-instance operations,
+  bulk changes, waiting, and recovery.
+- [Process Protocol](docs/process-protocol.md): advanced, read-as-needed
+  reference for bidirectional RPC and remote cleanup.
 
 ## Scope
 

@@ -19,7 +19,8 @@ pending / stopped
 
 The Host activates providers before consumers. Before `Activate` returns, a
 plugin must complete required handshakes, submit every declared service, and be
-ready for use. Long-running work belongs in `Scope.Go`.
+ready for use. Long-running work belongs in `Scope.Go`; use `Scope.AfterReady`
+when it must not begin until this generation has committed Ready.
 
 Preflight and activation use the same configuration preparation path, but preflight objects are discarded. `New` and `Validate` must not acquire resources; create and register resources only in `Activate`.
 
@@ -31,10 +32,10 @@ On activation failure, the Host preserves the original error and then moves the 
 
 The Host freezes the complete affected closure before invoking user callbacks:
 
-1. Every affected Scope rejects new tasks, leases, and resource registrations.
+1. Every affected Scope rejects new `Get` / `Provide` calls, tasks, leases, and cleanup registrations.
 2. `OnStop` callbacks run in reverse topology to close routes, listeners, subscriptions, and other entrances.
 3. The Scope runtime context is canceled.
-4. The Host waits for `Scope.Go` tasks and `Acquire` leases to exit.
+4. The Host waits for `Scope.Go` / `AfterReady` tasks and `Acquire` / `AcquireReady` leases to exit.
 5. `Defer` callbacks run in reverse order, then services and dependency references are removed.
 
 This cleans up consumers before providers and children before parents. Use `OnStop` only to close entrances; place database connections, processes, and other final resources in `Defer`.
@@ -49,7 +50,16 @@ if err != nil {
 defer release()
 ```
 
-A raw service reference without a lease is not protected from concurrent shutdown. Cleanup callbacks should use dependencies captured during startup instead of calling `Get` again.
+`Go` creates and supervises a goroutine: shutdown cancels its Scope runtime
+context and waits for the task to return. `Acquire` neither creates nor cancels
+a goroutine; the caller owns the work and must invoke the idempotent `release`.
+Forgetting it leaves background cleanup waiting for that lease. A public entrance
+that must only admit calls after Ready can use `AcquireReady` instead.
+
+A raw service reference without a lease is not protected from concurrent
+shutdown. `gordis.Get` is a package-level function that receives a Scope; it
+returns `ErrClosed` after that Scope freezes. Cleanup callbacks should use
+dependencies captured during startup instead of calling `Get` again.
 
 ## Timeouts and residuals
 

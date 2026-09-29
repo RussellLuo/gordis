@@ -89,19 +89,30 @@ if err := scope.Defer("store", func(context.Context) error {
 return gordis.Provide[Store](scope, StoreKey, store)
 ```
 
-- `scope.Go(name, fn)` owns a managed task; a non-cancellation error fails the
-  generation.
-- `scope.OnStop(name, fn)` closes listeners and other entrances first.
-- `scope.Acquire()` protects an admitted request while shutdown drains it.
-- `scope.Defer(name, fn)` releases final resources in reverse order.
+These APIs cover dependencies, work admission, and shutdown cleanup:
+
+- `gordis.Get(scope, key)` is a package-level generic function that obtains this
+  generation's fixed dependency during `Activate`; it is not a Scope method.
+- `scope.Go(name, fn)` creates and owns a long-running task; a non-cancellation
+  error fails the generation. Use `scope.AfterReady(name, fn)` when the task must
+  wait until this generation is Ready.
+- `scope.Acquire()` leases caller-owned work but does not create a goroutine; the
+  caller must `defer release()`. Entrances that only accept calls after Ready use
+  `scope.AcquireReady()`.
+- `scope.OnStop(name, fn)` closes listeners, routes, subscriptions, and other
+  entrances before task cancellation.
+- `scope.Defer(name, fn)` releases final resources in reverse order after tasks
+  and leases drain.
 
 Do not retain Scope, services, or unmanaged goroutines across generations. If
 cleanup registration is rejected, the caller still owns the resource and must
 release it immediately.
 
-## 4. Mount and isolate root instances
+## 4. Assemble and isolate root instances in the application
 
-Register the fixed Plugin type catalog once, then mount desired instances:
+The preceding sections are the Plugin author's core path. The application
+assembly layer owns type registration, root mounts, and deployment labels. It
+registers the fixed Plugin type catalog once, then mounts desired instances:
 
 ```go
 host, err := gordis.NewHost([]gordis.Plugin{storePlugin, new(Writer)})

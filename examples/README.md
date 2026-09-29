@@ -12,17 +12,17 @@ and an explanation of the implementation.
 | Example | Focus |
 | --- | --- |
 | [basic](basic/README.md) | Typed services, JSON configuration, and multiple instances |
-| [events](events/README.md) | Typed Topic subscription and publication |
 | [isolation](isolation/README.md) | View isolation and multiple providers |
 | [ownership](ownership/README.md) | Nested Mount, generation ownership, and recursive cleanup |
 | [readiness](readiness/README.md) | Ownership separated from Service readiness |
 | [lifecycle](lifecycle/README.md) | Tasks, request leases, entrance withdrawal, and cleanup |
 | [dynamic](dynamic/README.md) | Provider removal, Pending transition, and Operation Restore |
 
-## Process extensions
+## Optional extensions
 
 | Example | Focus |
 | --- | --- |
+| [events](events/README.md) | Typed Topic subscription and publication |
 | [process](process/README.md) | A typed Service implemented by an external process |
 | [process events](process-events/README.md) | A typed Topic published by an external process |
 | [duplex](duplex/README.md) | An external Plugin consuming and providing typed Services |

@@ -86,9 +86,10 @@ Unmount provider 不会删除仍然存活的 consumer。required binding 因此�
 consumer 会先排空再进入 `Pending`，与 provider 运行时失败后的行为一致；重新挂载匹配的
 provider 后，Host 会再次自动收敛它们。
 
-## 批量变更与恢复
+## 批量变更与恢复（进阶）
 
-Loader 和其他管理面通过 `ChangeSet.Apply → Operation` 提交跨实例变更：
+普通应用优先使用前述 `Env` 和 `Instance` 操作。Loader 和其他需要原子修改多个实例的管理面，
+再通过 `ChangeSet.Apply → Operation` 提交跨实例变更：
 
 ```go
 changes := host.Changes()
@@ -99,7 +100,6 @@ changes.Update(reader, readerConfig)
 
 operation, err := changes.Apply(ctx)
 if err != nil {
-    // accepted operation 即使因 ctx 超时返回错误，operation 仍可用于观察。
     return err
 }
 mounted := operation.Mounted() // 按 ChangeSet.Mount 的登记顺序
@@ -114,6 +114,10 @@ Instance logical identity 和 owner generation 守护提交。这些检查是框
 required binding 正常停在 Pending。`Operation.Wait` 观察本次收敛是否结束，
 `Operation.WaitReady` 则等待本次 operation 显式固定的全部 exact revisions Ready，不递归
 等待它们的 children。
+
+如果调用方 context 在操作接受后到期，`Apply` 会同时返回非 nil `Operation` 和 context
+错误。需要在超时后继续观察的管理面应保留该 Operation，并使用新的 context 调用 `Wait`；
+普通请求可以直接返回错误。
 
 影响闭包仍可通过 `Operation.Snapshot` 用于诊断和应用级审计。若应用确实需要审批或 dry-run
 策略，可在 Gordis 之上封装该工作流，而无需让每个本地变更都承担这套交互。

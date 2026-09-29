@@ -10,17 +10,17 @@
 | 示例 | 重点 |
 | --- | --- |
 | [basic](basic/README.zh.md) | 类型化 Service、JSON 配置和多实例 |
-| [events](events/README.zh.md) | 类型化 Topic 的订阅与发布 |
 | [isolation](isolation/README.zh.md) | View 隔离和多 provider |
 | [ownership](ownership/README.zh.md) | 嵌套 Mount、generation 所有权和递归清理 |
 | [readiness](readiness/README.zh.md) | 所有权与 Service 就绪状态的分离 |
 | [lifecycle](lifecycle/README.zh.md) | 任务、请求租约、入口撤回和清理 |
 | [dynamic](dynamic/README.zh.md) | provider 移除、Pending 转换和 Operation Restore |
 
-## 进程扩展
+## 可选扩展
 
 | 示例 | 重点 |
 | --- | --- |
+| [events](events/README.zh.md) | 类型化 Topic 的订阅与发布 |
 | [process](process/README.zh.md) | 由外部进程实现的类型化 Service |
 | [process events](process-events/README.zh.md) | 由外部进程发布的类型化 Topic |
 | [duplex](duplex/README.zh.md) | 进程外 Plugin 同时消费和提供类型化 Service |

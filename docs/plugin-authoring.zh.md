@@ -83,17 +83,24 @@ if err := scope.Defer("store", func(context.Context) error {
 return gordis.Provide[Store](scope, StoreKey, store)
 ```
 
-- `scope.Go(name, fn)` 管理长期任务；非取消错误会使本代失败。
-- `scope.OnStop(name, fn)` 先关闭 listener 等入口。
-- `scope.Acquire()` 保护已准入请求，停止时等待租约释放。
-- `scope.Defer(name, fn)` 最终逆序释放资源。
+这些 API 分别处理依赖、工作准入和停止清理：
+
+- `gordis.Get(scope, key)` 是包级泛型函数，在 `Activate` 中取得本代的固定依赖；它不是
+  Scope 方法。
+- `scope.Go(name, fn)` 创建并管理长期任务；非取消错误会使本代失败。任务必须等本代 Ready
+  后才能开始时使用 `scope.AfterReady(name, fn)`。
+- `scope.Acquire()` 为调用方正在执行的工作持有租约，但不创建 goroutine；调用方必须
+  `defer release()`。只允许 Ready 后调用的入口使用 `scope.AcquireReady()`。
+- `scope.OnStop(name, fn)` 在任务取消前关闭 listener、route 或 subscription 等入口。
+- `scope.Defer(name, fn)` 在任务和租约排空后逆序释放最终资源。
 
 不要让 Scope、Service 或未受管 goroutine 跨 generation 逃逸。清理登记被拒绝时，调用方仍
 拥有刚取得的资源，必须立即自行释放。
 
-## 4. 挂载并隔离 root 实例
+## 4. 在应用中装配并隔离 root 实例
 
-先登记固定 Plugin 类型目录，再挂载 desired instance：
+前面三节是 Plugin 作者的核心路径；类型登记、root 实例挂载和部署标签由应用装配层负责。
+应用先登记固定 Plugin 类型目录，再挂载 desired instance：
 
 ```go
 host, err := gordis.NewHost([]gordis.Plugin{storePlugin, new(Writer)})

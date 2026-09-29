@@ -103,7 +103,7 @@ return gordis.Provide[Store](scope, StoreKey, store)
 应用先登记固定 Plugin 类型目录，再挂载 desired instance：
 
 ```go
-host, err := gordis.NewHost([]gordis.Plugin{storePlugin, new(Writer)})
+host, err := gordis.NewHost(storePlugin, new(Writer))
 if err != nil {
     return err
 }

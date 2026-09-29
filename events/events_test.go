@@ -50,7 +50,7 @@ func testContext(t *testing.T) context.Context {
 func newHost(t *testing.T, plugins ...gordis.Plugin) *gordis.Host {
 	t.Helper()
 	all := append([]gordis.Plugin{new(events.Plugin)}, plugins...)
-	host, err := gordis.NewHost(all)
+	host, err := gordis.NewHost(all...)
 	if err != nil {
 		t.Fatal(err)
 	}

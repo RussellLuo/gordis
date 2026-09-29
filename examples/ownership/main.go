@@ -45,7 +45,7 @@ func (*childPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
 }
 
 func run() error {
-	host, err := gordis.NewHost([]gordis.Plugin{new(ownerPlugin), new(childPlugin)})
+	host, err := gordis.NewHost(new(ownerPlugin), new(childPlugin))
 	if err != nil {
 		return err
 	}

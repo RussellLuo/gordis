@@ -22,7 +22,7 @@ func (*exampleGreeter) Activate(_ context.Context, scope *gordis.Scope) error {
 }
 
 func ExampleNewHost() {
-	host, err := gordis.NewHost([]gordis.Plugin{new(exampleGreeter)})
+	host, err := gordis.NewHost(new(exampleGreeter))
 	if err != nil {
 		panic(err)
 	}

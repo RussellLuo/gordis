@@ -107,7 +107,7 @@ func TestStreamingLeaseDrainsOnClientDisconnect(t *testing.T) {
 	defer closeIdle()
 	a := &app{base: "/nested/demo/", entries: map[string]*endpoint{}, managed: map[string]*managedInstance{}}
 	withdrawn := make(chan struct{})
-	a.host, err = gordis.NewHost([]gordis.Plugin{&proxyTestPlugin{app: a, proxy: proxy, withdrawn: withdrawn}})
+	a.host, err = gordis.NewHost(&proxyTestPlugin{app: a, proxy: proxy, withdrawn: withdrawn})
 	if err != nil {
 		t.Fatal(err)
 	}

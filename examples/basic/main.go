@@ -66,7 +66,7 @@ func (p *greetingPlugin) Activate(_ context.Context, scope *gordis.Scope) error 
 }
 
 func run() error {
-	h, err := gordis.NewHost([]gordis.Plugin{new(greeterPlugin), new(greetingPlugin)})
+	h, err := gordis.NewHost(new(greeterPlugin), new(greetingPlugin))
 	if err != nil {
 		return err
 	}

@@ -51,7 +51,7 @@ func (p *versionPlugin) Activate(context.Context, *gordis.Scope) error {
 
 func TestChangeSetAtomicMountMountedOrderAndExactReadiness(t *testing.T) {
 	values := make(chan string, 4)
-	h, err := gordis.NewHost([]gordis.Plugin{new(p2Provider), &p2Consumer{values: values}})
+	h, err := gordis.NewHost(new(p2Provider), &p2Consumer{values: values})
 	must(t, err)
 	t.Cleanup(func() { _ = h.Shutdown(context.Background()) })
 
@@ -80,7 +80,7 @@ func TestChangeSetAtomicMountMountedOrderAndExactReadiness(t *testing.T) {
 
 func TestChangeSetProviderRemovalMakesConsumerPendingAndRestores(t *testing.T) {
 	values := make(chan string, 4)
-	h, err := gordis.NewHost([]gordis.Plugin{new(p2Provider), &p2Consumer{values: values}})
+	h, err := gordis.NewHost(new(p2Provider), &p2Consumer{values: values})
 	must(t, err)
 	t.Cleanup(func() { _ = h.Shutdown(context.Background()) })
 
@@ -127,7 +127,7 @@ func TestChangeSetProviderRemovalMakesConsumerPendingAndRestores(t *testing.T) {
 
 func TestChangeSetAtomicReplacementAndRestoreUsesNewLogicalHandles(t *testing.T) {
 	values := make(chan string, 4)
-	h, err := gordis.NewHost([]gordis.Plugin{new(p2Provider), &p2Consumer{values: values}})
+	h, err := gordis.NewHost(new(p2Provider), &p2Consumer{values: values})
 	must(t, err)
 	t.Cleanup(func() { _ = h.Shutdown(context.Background()) })
 
@@ -180,7 +180,7 @@ func TestChangeSetAtomicReplacementAndRestoreUsesNewLogicalHandles(t *testing.T)
 
 func TestLoaderStyleEntryOverlayAndDisableUseOnlyPublicControlPlane(t *testing.T) {
 	values := make(chan string, 4)
-	h, err := gordis.NewHost([]gordis.Plugin{new(p2Provider), &p2Consumer{values: values}})
+	h, err := gordis.NewHost(new(p2Provider), &p2Consumer{values: values})
 	must(t, err)
 	t.Cleanup(func() { _ = h.Shutdown(context.Background()) })
 	tenant := h.Env().Isolate(p2ValueKey, "tenant-a")
@@ -224,7 +224,7 @@ func TestAcceptedChangeSetTimeoutRemainsObservable(t *testing.T) {
 		scopes <- scope
 		return nil
 	})
-	h, err := gordis.NewHost([]gordis.Plugin{plugin})
+	h, err := gordis.NewHost(plugin)
 	must(t, err)
 	t.Cleanup(func() { _ = h.Shutdown(context.Background()) })
 	instance, err := h.Env().MountReady(deadline(t), gordis.InstanceSpec{ID: "leased", Plugin: "leased"})
@@ -253,7 +253,7 @@ func TestAcceptedChangeSetTimeoutRemainsObservable(t *testing.T) {
 func TestOperationSeparatesActivationAndRestoreFailures(t *testing.T) {
 	var rejectOld atomic.Bool
 	plugin := &versionPlugin{rejectOld: &rejectOld}
-	h, err := gordis.NewHost([]gordis.Plugin{plugin})
+	h, err := gordis.NewHost(plugin)
 	must(t, err)
 	t.Cleanup(func() { _ = h.Shutdown(context.Background()) })
 	instance, err := h.Env().MountReady(deadline(t), gordis.InstanceSpec{
@@ -312,7 +312,7 @@ func TestOperationWaitReadyObservesFailureBeyondAnotherPendingTarget(t *testing.
 			}
 		})
 	})
-	h, err := gordis.NewHost([]gordis.Plugin{&p2Consumer{values: make(chan string, 1)}, runtime})
+	h, err := gordis.NewHost(&p2Consumer{values: make(chan string, 1)}, runtime)
 	must(t, err)
 	t.Cleanup(func() { _ = h.Shutdown(context.Background()) })
 	changes := h.Changes()
@@ -330,7 +330,7 @@ func TestOperationWaitReadyObservesFailureBeyondAnotherPendingTarget(t *testing.
 }
 
 func TestChangeSetRejectsConflicts(t *testing.T) {
-	h, err := gordis.NewHost([]gordis.Plugin{definition("plain", nil)})
+	h, err := gordis.NewHost(definition("plain", nil))
 	must(t, err)
 	t.Cleanup(func() { _ = h.Shutdown(context.Background()) })
 	instance, err := h.Env().MountReady(deadline(t), gordis.InstanceSpec{ID: "one", Plugin: "plain"})
@@ -356,7 +356,7 @@ func TestChangeSetRejectsOwnerGenerationThatFailedBeforeApply(t *testing.T) {
 			}
 		})
 	})
-	h, err := gordis.NewHost([]gordis.Plugin{parent, definition("child", nil)})
+	h, err := gordis.NewHost(parent, definition("child", nil))
 	must(t, err)
 	t.Cleanup(func() { _ = h.Shutdown(context.Background()) })
 	owner, err := h.Env().MountReady(deadline(t), gordis.InstanceSpec{ID: "owner", Plugin: "parent"})

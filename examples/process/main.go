@@ -48,7 +48,7 @@ func run(path string) error {
 		return err
 	}
 
-	host, err := gordis.NewHost([]gordis.Plugin{remoteGreeter, new(consumerPlugin)})
+	host, err := gordis.NewHost(remoteGreeter, new(consumerPlugin))
 	if err != nil {
 		return err
 	}

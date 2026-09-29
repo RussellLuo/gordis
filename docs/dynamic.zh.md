@@ -8,7 +8,7 @@
 ## 挂载与等待
 
 ```go
-host, err := gordis.NewHost(plugins)
+host, err := gordis.NewHost(plugins...)
 if err != nil {
     return err
 }

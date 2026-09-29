@@ -115,7 +115,7 @@ assembly layer owns type registration, root mounts, and deployment labels. It
 registers the fixed Plugin type catalog once, then mounts desired instances:
 
 ```go
-host, err := gordis.NewHost([]gordis.Plugin{storePlugin, new(Writer)})
+host, err := gordis.NewHost(storePlugin, new(Writer))
 if err != nil {
     return err
 }

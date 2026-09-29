@@ -86,9 +86,9 @@ func (p *p3Composer) Activate(ctx context.Context, scope *gordis.Scope) error {
 func TestNestedMountSiblingBindingAndGenerationOwnership(t *testing.T) {
 	children := make(chan p3Children, 2)
 	values := make(chan string, 2)
-	h, err := gordis.NewHost([]gordis.Plugin{
+	h, err := gordis.NewHost(
 		&p3Composer{children: children, values: values}, new(p3Provider), &p3Consumer{values: values},
-	})
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestNestedMountSiblingBindingAndGenerationOwnership(t *testing.T) {
 func TestRestoreParentRequiresLoaderToReconcileOwnedChildren(t *testing.T) {
 	parentPlugin := definition("p3-loader-parent", nil)
 	childPlugin := definition("p3-loader-child", nil)
-	host, err := gordis.NewHost([]gordis.Plugin{parentPlugin, childPlugin})
+	host, err := gordis.NewHost(parentPlugin, childPlugin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func (*p3CycleParent) Activate(ctx context.Context, scope *gordis.Scope) error {
 }
 
 func TestNestedMountDetectsActivationWaitCycleAndRollsBackSubtree(t *testing.T) {
-	h, err := gordis.NewHost([]gordis.Plugin{new(p3CycleParent), &p3Consumer{}})
+	h, err := gordis.NewHost(new(p3CycleParent), &p3Consumer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func (*p3PublishingParent) Activate(ctx context.Context, scope *gordis.Scope) er
 
 func TestNonBlockingNestedMountWaitsForAncestorPublication(t *testing.T) {
 	values := make(chan string, 1)
-	h, err := gordis.NewHost([]gordis.Plugin{new(p3PublishingParent), &p3Consumer{values: values}})
+	h, err := gordis.NewHost(new(p3PublishingParent), &p3Consumer{values: values})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestNestedFailureDoesNotAffectParentReadiness(t *testing.T) {
 	failure := errors.New("nested child failed")
 	children := make(chan *gordis.Instance, 1)
 	parentPlugin := &p3FailureParent{child: children}
-	h, err := gordis.NewHost([]gordis.Plugin{parentPlugin, &p3FailingChild{failure: failure}})
+	h, err := gordis.NewHost(parentPlugin, &p3FailingChild{failure: failure})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,9 +379,9 @@ func TestOperationWaitReadyTargetsParentNotPendingChild(t *testing.T) {
 	children := make(chan *gordis.Instance, 1)
 	values := make(chan string, 2)
 	parentPlugin := &p3PendingParent{child: children}
-	h, err := gordis.NewHost([]gordis.Plugin{
+	h, err := gordis.NewHost(
 		parentPlugin, &p3Consumer{values: values}, new(p3Provider),
-	})
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +443,7 @@ func TestOperationWaitReadyTargetsParentNotPendingChild(t *testing.T) {
 }
 
 func TestSnapshotJSONOmitsOwnershipReadinessFields(t *testing.T) {
-	h, err := gordis.NewHost([]gordis.Plugin{definition("plain", nil)})
+	h, err := gordis.NewHost(definition("plain", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,10 +512,10 @@ func TestParentActivationFailureCleansAndRemovesProvisionalChildren(t *testing.T
 	failure := errors.New("parent activation failed")
 	children := make(chan *gordis.Instance, 1)
 	cleaned := make(chan string, 1)
-	h, err := gordis.NewHost([]gordis.Plugin{
+	h, err := gordis.NewHost(
 		&p3RollbackParent{child: children, cleaned: cleaned, failure: failure},
 		&p3CleanupChild{cleaned: cleaned},
-	})
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -540,9 +540,9 @@ func TestParentActivationFailureCleansAndRemovesProvisionalChildren(t *testing.T
 func TestNestedMountSnapshotReentry(t *testing.T) {
 	children := make(chan p3Children, 1)
 	values := make(chan string, 1)
-	h, err := gordis.NewHost([]gordis.Plugin{
+	h, err := gordis.NewHost(
 		&p3Composer{children: children, values: values}, new(p3Provider), &p3Consumer{values: values},
-	})
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -611,7 +611,7 @@ func (p *p3Recursive) Activate(ctx context.Context, scope *gordis.Scope) error {
 
 func TestRecursiveNestedMountAndOwnedCleanupOrder(t *testing.T) {
 	state := new(p3RecursiveState)
-	h, err := gordis.NewHost([]gordis.Plugin{&p3Recursive{state: state}})
+	h, err := gordis.NewHost(&p3Recursive{state: state})
 	if err != nil {
 		t.Fatal(err)
 	}

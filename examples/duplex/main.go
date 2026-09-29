@@ -68,9 +68,9 @@ func run(path string) error {
 		return err
 	}
 
-	host, err := gordis.NewHost([]gordis.Plugin{
+	host, err := gordis.NewHost(
 		new(directoryPlugin), remoteGreeter, new(consumerPlugin),
-	})
+	)
 	if err != nil {
 		return err
 	}

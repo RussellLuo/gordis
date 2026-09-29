@@ -65,11 +65,11 @@ func (*collectorPlugin) Spec() gordis.PluginSpec {
 func (*collectorPlugin) Activate(context.Context, *gordis.Scope) error { return nil }
 
 func run(ctx context.Context) error {
-	host, err := gordis.NewHost([]gordis.Plugin{
+	host, err := gordis.NewHost(
 		new(collectorPlugin),
 		new(metricsPlugin),
 		new(backendPlugin),
-	})
+	)
 	if err != nil {
 		return err
 	}

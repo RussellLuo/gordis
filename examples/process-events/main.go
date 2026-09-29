@@ -54,11 +54,11 @@ func run(path string) error {
 		return err
 	}
 
-	host, err := gordis.NewHost([]gordis.Plugin{
+	host, err := gordis.NewHost(
 		new(events.Plugin),
 		&noticeObserverPlugin{received: received},
 		remotePublisher,
-	})
+	)
 	if err != nil {
 		return err
 	}

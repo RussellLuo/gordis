@@ -50,7 +50,7 @@ func (*collectorPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
 }
 
 func run() error {
-	host, err := gordis.NewHost([]gordis.Plugin{new(storePlugin), new(collectorPlugin)})
+	host, err := gordis.NewHost(new(storePlugin), new(collectorPlugin))
 	if err != nil {
 		return err
 	}

@@ -308,7 +308,7 @@ func TestPluginLifecycleConsistency(t *testing.T) {
 						consumer := newTestPlugin(
 							"consumer", []gordis.ServiceSpec{sampleKey.Spec()}, nil, consumerStart,
 						)
-						h, err := gordis.NewHost([]gordis.Plugin{provider, fixture, consumer})
+						h, err := gordis.NewHost(provider, fixture, consumer)
 						if err != nil {
 							t.Fatal(err)
 						}
@@ -506,7 +506,7 @@ func processHost(
 		"consumer", []gordis.ServiceSpec{sampleKey.Spec()}, nil, consumerStart,
 	)
 	raw, _ := json.Marshal(map[string]string{"mode": mode})
-	h, err := gordis.NewHost([]gordis.Plugin{provider, plugin, consumer})
+	h, err := gordis.NewHost(provider, plugin, consumer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -731,7 +731,7 @@ func TestObserverPanicCannotOrphanStartedProcess(t *testing.T) {
 	provider := newTestPlugin(
 		"journal", nil, []gordis.ServiceSpec{journalKey.Spec()}, providerStart,
 	)
-	h, err := gordis.NewHost([]gordis.Plugin{provider, plugin})
+	h, err := gordis.NewHost(provider, plugin)
 	if err != nil {
 		t.Fatal(err)
 	}

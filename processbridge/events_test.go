@@ -286,7 +286,7 @@ func newEventBridgeFixture(t *testing.T, plugins ...gordis.Plugin) *eventBridgeF
 	})
 	all := []gordis.Plugin{new(events.Plugin), provider, publisher}
 	all = append(all, plugins...)
-	host, err := gordis.NewHost(all)
+	host, err := gordis.NewHost(all...)
 	if err != nil {
 		t.Fatal(err)
 	}

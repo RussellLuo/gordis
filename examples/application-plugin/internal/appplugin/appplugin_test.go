@@ -64,7 +64,7 @@ func TestHTTPDataPlaneDrainsRemoteScopeLease(t *testing.T) {
 	completed := make(chan struct{})
 	release := make(chan struct{})
 	plugin := &httpFixture{endpoint: endpoints, entered: entered, completed: completed, release: release}
-	host, err := gordis.NewHost([]gordis.Plugin{plugin})
+	host, err := gordis.NewHost(plugin)
 	if err != nil {
 		t.Fatal(err)
 	}

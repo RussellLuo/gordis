@@ -54,7 +54,7 @@ func (*consumerPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
 }
 
 func run() error {
-	h, err := gordis.NewHost([]gordis.Plugin{new(sourcePlugin), new(consumerPlugin)})
+	h, err := gordis.NewHost(new(sourcePlugin), new(consumerPlugin))
 	if err != nil {
 		return err
 	}

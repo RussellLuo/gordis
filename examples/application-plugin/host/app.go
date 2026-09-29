@@ -107,7 +107,7 @@ func newApp(base, assets, packages string) (*app, error) {
 	if err != nil {
 		return nil, err
 	}
-	a.host, err = gordis.NewHost([]gordis.Plugin{backend, &gatewayPlugin{app: a}})
+	a.host, err = gordis.NewHost(backend, &gatewayPlugin{app: a})
 	if err != nil {
 		return nil, err
 	}

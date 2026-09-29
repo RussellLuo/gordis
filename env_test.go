@@ -81,7 +81,7 @@ func p2Deadline(t *testing.T) context.Context {
 
 func TestRootEnvPendingRecoveryUpdateRestartAndUnmount(t *testing.T) {
 	values := make(chan string, 4)
-	host, err := gordis.NewHost([]gordis.Plugin{new(p2Provider), &p2Consumer{values: values}})
+	host, err := gordis.NewHost(new(p2Provider), &p2Consumer{values: values})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestRootEnvPendingRecoveryUpdateRestartAndUnmount(t *testing.T) {
 
 func TestRootEnvViewIsolationAndMountReadyFailureHandle(t *testing.T) {
 	values := make(chan string, 2)
-	host, err := gordis.NewHost([]gordis.Plugin{new(p2Provider), &p2Consumer{values: values}})
+	host, err := gordis.NewHost(new(p2Provider), &p2Consumer{values: values})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,10 +248,10 @@ func (*p2FactoryMissingActivateResult) Spec() gordis.PluginSpec {
 }
 
 func TestMountReadyKeepsCommittedFailureAndShutdownClosesEnv(t *testing.T) {
-	if _, err := gordis.NewHost([]gordis.Plugin{new(p2MissingActivate)}); err == nil {
+	if _, err := gordis.NewHost(new(p2MissingActivate)); err == nil {
 		t.Fatal("plugin without Activate was registered")
 	}
-	host, err := gordis.NewHost([]gordis.Plugin{new(p2Failing)})
+	host, err := gordis.NewHost(new(p2Failing))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestMountReadyKeepsCommittedFailureAndShutdownClosesEnv(t *testing.T) {
 }
 
 func TestMountPreflightRejectsFactoryResultWithoutActivate(t *testing.T) {
-	host, err := gordis.NewHost([]gordis.Plugin{new(p2FactoryMissingActivatePrototype)})
+	host, err := gordis.NewHost(new(p2FactoryMissingActivatePrototype))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestUnmountDeadlineBoundsCallerWhileAcceptedCleanupContinues(t *testing.T) 
 		scopes <- scope
 		return nil
 	})
-	host, err := gordis.NewHost([]gordis.Plugin{plugin})
+	host, err := gordis.NewHost(plugin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +332,7 @@ func TestUnmountDeadlineBoundsCallerWhileAcceptedCleanupContinues(t *testing.T) 
 
 func TestMountCommitBoundaryAndPendingTimeout(t *testing.T) {
 	values := make(chan string, 1)
-	host, err := gordis.NewHost([]gordis.Plugin{&p2Consumer{values: values}})
+	host, err := gordis.NewHost(&p2Consumer{values: values})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +394,7 @@ func TestServiceAddressIncludesKeyAndLabel(t *testing.T) {
 	})
 	consumer.Requires = []gordis.ServiceSpec{keyA.Spec(), keyB.Spec()}
 
-	host, err := gordis.NewHost([]gordis.Plugin{providerA, providerB, consumer})
+	host, err := gordis.NewHost(providerA, providerB, consumer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,12 +418,12 @@ func TestServiceAddressIncludesKeyAndLabel(t *testing.T) {
 }
 
 func TestHostRejectsInvalidCatalog(t *testing.T) {
-	if _, err := gordis.NewHost([]gordis.Plugin{definition("same", nil), definition("same", nil)}); err == nil {
+	if _, err := gordis.NewHost(definition("same", nil), definition("same", nil)); err == nil {
 		t.Fatal("duplicate plugin type was accepted")
 	}
 	invalid := definition("invalid", nil)
 	invalid.Requires = []gordis.ServiceSpec{gordis.NewKey[*int]("").Spec()}
-	if _, err := gordis.NewHost([]gordis.Plugin{invalid}); err == nil {
+	if _, err := gordis.NewHost(invalid); err == nil {
 		t.Fatal("invalid service key was accepted")
 	}
 }

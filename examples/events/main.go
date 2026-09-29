@@ -64,11 +64,11 @@ func (*orderPublisherPlugin) Activate(_ context.Context, scope *gordis.Scope) er
 
 func run() error {
 	received := make(chan orderCreated, 1)
-	host, err := gordis.NewHost([]gordis.Plugin{
+	host, err := gordis.NewHost(
 		new(events.Plugin),
 		&orderObserverPlugin{received: received},
 		new(orderPublisherPlugin),
-	})
+	)
 	if err != nil {
 		return err
 	}

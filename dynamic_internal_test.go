@@ -19,7 +19,7 @@ func (*internalPlanPlugin) Spec() PluginSpec {
 func (*internalPlanPlugin) Activate(context.Context, *Scope) error { return nil }
 
 func TestInternalChangePlanRejectsStaleHostRevision(t *testing.T) {
-	h, err := NewHost([]Plugin{new(internalPlanPlugin)})
+	h, err := NewHost(new(internalPlanPlugin))
 	if err != nil {
 		t.Fatal(err)
 	}

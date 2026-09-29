@@ -58,7 +58,7 @@ func run() error {
 	entranceClosed := make(chan struct{})
 	scopeReady := make(chan *gordis.Scope, 1)
 	worker := &workerPlugin{entranceClosed: entranceClosed, scopeReady: scopeReady}
-	h, err := gordis.NewHost([]gordis.Plugin{worker})
+	h, err := gordis.NewHost(worker)
 	if err != nil {
 		return err
 	}

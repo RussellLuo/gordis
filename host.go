@@ -83,7 +83,7 @@ type Host struct {
 
 // NewHost registers the fixed set of native Plugin types and creates an empty
 // synthetic root Env. Instances are mounted through Host.Env.
-func NewHost(plugins []Plugin) (*Host, error) {
+func NewHost(plugins ...Plugin) (*Host, error) {
 	for _, plugin := range plugins {
 		if plugin == nil {
 			return nil, errors.New("gordis: nil plugin prototype")

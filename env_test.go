@@ -79,6 +79,38 @@ func p2Deadline(t *testing.T) context.Context {
 	return ctx
 }
 
+func TestRejectedConfigurationDoesNotChangeGraphOrGeneration(t *testing.T) {
+	host, err := gordis.NewHost(new(p2Provider))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = host.Shutdown(context.Background()) })
+
+	if _, err := host.Env().Mount(context.Background(), gordis.InstanceSpec{
+		ID: "misspelled", Plugin: "p2-provider", Config: json.RawMessage(`{"vlaue":"one"}`),
+	}); err == nil {
+		t.Fatal("Mount() accepted invalid configuration")
+	}
+	if len(host.Snapshot()) != 0 {
+		t.Fatalf("invalid mount changed the graph: %+v", host.Snapshot())
+	}
+
+	provider, err := host.Env().MountReady(p2Deadline(t), gordis.InstanceSpec{
+		ID: "provider", Plugin: "p2-provider", Config: json.RawMessage(`{"value":"one"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := p2Snapshot(t, host, "provider")
+	if err := provider.Update(p2Deadline(t), json.RawMessage(`{"vlaue":"two"}`)); err == nil {
+		t.Fatal("Update() accepted invalid configuration")
+	}
+	after := p2Snapshot(t, host, "provider")
+	if after.Generation != before.Generation || after.Phase != gordis.PhaseReady {
+		t.Fatalf("invalid update changed the running generation: before=%+v after=%+v", before, after)
+	}
+}
+
 func TestRootEnvPendingRecoveryUpdateRestartAndUnmount(t *testing.T) {
 	values := make(chan string, 4)
 	host, err := gordis.NewHost(new(p2Provider), &p2Consumer{values: values})

@@ -65,6 +65,8 @@ Rules:
   declared Service.
 - Long-lived work uses `scope.Context()` through `scope.Go`, not the activation
   context.
+- `Config` is one JSON object (an empty value means `{}`); standard struct
+  decoding rejects unknown fields.
 
 During preflight the Host creates a preparation object, checks its `Spec`,
 configuration, optional `Validate`, and `Activate` capability, then discards it.

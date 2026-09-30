@@ -4,9 +4,11 @@
 package plugin
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 
 	"github.com/RussellLuo/gordis/internal/lifecycle"
@@ -71,7 +73,7 @@ func Prepare(spec Spec, raw json.RawMessage) (Plugin, error) {
 	} else {
 		raw = append(json.RawMessage(nil), raw...)
 	}
-	if err := lifecycle.Invoke(func() error { return json.Unmarshal(raw, value) }); err != nil {
+	if err := lifecycle.Invoke(func() error { return decodeConfig(raw, value) }); err != nil {
 		return nil, fmt.Errorf("decode configuration: %w", err)
 	}
 	if nilValue(value) {
@@ -93,6 +95,28 @@ func Prepare(spec Spec, raw json.RawMessage) (Plugin, error) {
 		}
 	}
 	return value, nil
+}
+
+func decodeConfig(raw json.RawMessage, value Plugin) error {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || raw[0] != '{' {
+		return errors.New("configuration must be a JSON object")
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(value); err != nil {
+		return err
+	}
+	var trailing any
+	switch err := decoder.Decode(&trailing); err {
+	case io.EOF:
+		return nil
+	case nil:
+		return errors.New("configuration must contain exactly one JSON object")
+	default:
+		return err
+	}
 }
 
 func validateSpec(spec Spec) error {

@@ -36,7 +36,8 @@ type Validator = internalplugin.Validator
 
 // InstanceSpec contains desired-state configuration only. Plugin selects a
 // registered PluginSpec by ID; it never stores a running Plugin object. Config
-// is copied at each control-plane boundary and for every validation/activation.
+// must contain one JSON object; an empty value means {}. Standard struct decoding
+// rejects unknown fields. Config is copied for every validation and activation.
 type InstanceSpec struct {
 	ID     string
 	Plugin string

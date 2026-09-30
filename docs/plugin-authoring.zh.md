@@ -61,6 +61,7 @@ func (p *Writer) Activate(ctx context.Context, scope *gordis.Scope) error {
 - `Validate` 可重复、无副作用。
 - `Activate` 成功返回时，插件必须已可用并提交全部声明的 Service。
 - 长期任务通过 `scope.Go` 使用 `scope.Context()`，不用 activation context。
+- `Config` 是单个 JSON object（空值视为 `{}`）；标准结构体解码会拒绝未知字段。
 
 Host 在预检时创建 preparation object，核对它的 `Spec`、配置、可选 `Validate` 和 `Activate`
 能力后丢弃；实际激活时再创建独立的运行对象。

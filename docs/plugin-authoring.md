@@ -95,6 +95,8 @@ These APIs cover dependencies, work admission, and shutdown cleanup:
 
 - `gordis.Get(scope, key)` is a package-level generic function that obtains this
   generation's fixed dependency during `Activate`; it is not a Scope method.
+- `gordis.Lookup(scope, key)` probes an optional service in this generation's
+  View without declaring `Requires`, creating a dependency, or acquiring a lease.
 - `scope.Go(name, fn)` creates and owns a long-running task; a non-cancellation
   error fails the generation. Use `scope.AfterReady(name, fn)` when the task must
   wait until this generation is Ready.
@@ -106,9 +108,105 @@ These APIs cover dependencies, work admission, and shutdown cleanup:
 - `scope.Defer(name, fn)` releases final resources in reverse order after tasks
   and leases drain.
 
-Do not retain Scope, services, or unmanaged goroutines across generations. If
-cleanup registration is rejected, the caller still owns the resource and must
-release it immediately.
+Do not retain a Scope, its fixed dependencies, or unmanaged goroutines beyond
+the owning consumer generation. If cleanup registration is rejected, the caller
+still owns the resource and must release it immediately.
+
+### Probe an optional service
+
+Use `Requires + Get` for a required database and `Lookup` for a cache that may
+be absent. Inject a query function during `Activate` and call it on each request:
+
+```go
+type ValueStore interface {
+    Get(context.Context, string) ([]byte, error)
+}
+
+var DatabaseKey = gordis.NewKey[ValueStore]("example.database/1")
+var CacheKey = gordis.NewKey[ValueStore]("example.cache/1")
+
+type readerPlugin struct {
+    database    ValueStore
+    lookupCache func() (ValueStore, bool, error)
+}
+
+func (*readerPlugin) Spec() gordis.PluginSpec {
+    return gordis.PluginSpec{
+        ID:       "reader",
+        Requires: []gordis.ServiceSpec{DatabaseKey.Spec()},
+        New:      func() gordis.Plugin { return new(readerPlugin) },
+    }
+}
+
+func (p *readerPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
+    database, err := gordis.Get(scope, DatabaseKey)
+    if err != nil {
+        return err
+    }
+    p.database = database
+    p.lookupCache = func() (ValueStore, bool, error) {
+        return gordis.Lookup(scope, CacheKey)
+    }
+    return nil
+}
+
+func (p *readerPlugin) Get(ctx context.Context, id string) ([]byte, error) {
+    cache, found, err := p.lookupCache()
+    if err != nil {
+        return nil, err
+    }
+    if found {
+        return cache.Get(ctx, id)
+    }
+    return p.database.Get(ctx, id)
+}
+```
+
+The query function captures this generation's Scope and performs a fresh Lookup
+on each call. Publish the request entrance only after initialization, and accept
+requests after Ready. For concurrent entrances, the application must reject new
+requests and drain existing ones before reader cleanup; see
+[Lifecycle](lifecycle.md) for request leases. This does not extend an optional
+cache provider's lifetime. The example falls back only when the cache is absent.
+Whether a failed cache call should fall back depends on the business error and
+request cancellation.
+
+Run the [optional service example](../examples/optional-service/README.md) to
+observe database → cache → database requests in the same reader generation.
+
+`Lookup` returns `(value, found, err)` and only examines the caller's fixed View
+label. It never searches another label as a fallback. A missing cache leaves
+the reader Ready; cache appearance, removal, or replacement does not restart it.
+The Key name and exact Go type must match the provider's contract.
+
+| Result | Meaning |
+| --- | --- |
+| Zero value, `false`, `nil` | No provider is published and Ready at that label, or it is frozen/stopping |
+| Value, `true`, `nil` | The current provider was available at the instant of lookup |
+| Zero value, `false`, error | Invalid Key or contract type mismatch; `ErrClosed` for a nil/closed/frozen caller; `ErrStale` for a superseded generation; `ErrLookupUnsupported` for a live detached/process Scope |
+
+The caller must be a current, unfrozen Host generation. `Activate` may query
+other Ready providers, but its own staged `Provide` values are not visible
+until Ready publication. An undeclared `Get` still returns an error, even if
+`Lookup` can find that service.
+
+```text
+request obtains cache → provider is unloaded → request calls the old cache
+```
+
+New lookups stop returning the unloaded provider. Previously returned objects
+remain ordinary Go values: they do not follow replacements or become invalid
+automatically. Their methods may succeed or fail because resources were closed
+or canceled. The framework neither guarantees those calls nor waits for them
+before unloading the provider. Use `Requires + Get` when the provider must
+survive through consumer cleanup.
+
+For a background feature that should start and stop with a service, mount a
+registered consumer child declaring that service in `Requires`. The child stays
+Pending while the service is absent and gets its own lifecycle when it appears.
+Its Pending state or failure does not change parent readiness. Ownership does
+not imply a readiness dependency. This is a conditional feature; request-time
+fallback belongs in `Lookup`.
 
 ## 4. Assemble and isolate root instances in the application
 
@@ -193,6 +291,11 @@ require the same `Key[T]`; the Adapter publishes a typed proxy during
 `Activate`. Only contracts with explicit request/response, cancellation, and
 error semantics should cross a process boundary. See
 [Process Protocol](process-protocol.md).
+
+`Lookup` requires a local Host. A Host-backed caller can discover visible
+Adapter proxies, but the detached Scope inside the child process returns
+`ErrLookupUnsupported`, including for services already accessible through its
+fixed `Get` bindings. There is no cross-process dynamic lookup protocol.
 
 Cross-process events likewise leave the business Plugin unchanged: it still
 uses `events.Bind(scope)`. Assembly registers matching `BindTopic`/`BindHook`

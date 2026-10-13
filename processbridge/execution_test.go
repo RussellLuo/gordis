@@ -91,6 +91,18 @@ func (p *fixturePlugin) Activate(ctx context.Context, s *gordis.Scope) error {
 	if err := j.Record(ctx, "start"); err != nil {
 		return err
 	}
+	if p.Mode == "lookup-unsupported" {
+		// A fixed binding must not masquerade as dynamic discovery in the child.
+		for _, key := range []gordis.Key[journal]{journalKey, gordis.NewKey[journal]("missing")} {
+			value, found, err := gordis.Lookup(s, key)
+			if value != nil || found || !errors.Is(err, gordis.ErrLookupUnsupported) {
+				return fmt.Errorf("process Lookup(%q) = %v, %v, %v", key.Name(), value, found, err)
+			}
+		}
+		if err := j.Record(ctx, "lookup:unsupported"); err != nil {
+			return err
+		}
+	}
 	if err := s.Defer("first", func(ctx context.Context) error {
 		if p.Mode == "hang" {
 			select {}
@@ -562,6 +574,26 @@ func TestFrozenProviderAndConsumerCleanupKeepFixedReferences(t *testing.T) {
 		t.Fatal(log.list())
 	}
 	processtest.AssertClosed(t, c)
+}
+
+func TestProcessLookupUnsupportedKeepsFixedBindingsAndCleanup(t *testing.T) {
+	log := &logbook{}
+	h, client, _, service, _, disposed := processHost(t, "lookup-unsupported", log, true)
+	value, err := service.Sample(context.Background(), "ok")
+	if err != nil || value != "sample/1:ok" {
+		t.Fatal(value, err)
+	}
+	if err := stopHost(t, h); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"start", "lookup:unsupported", "sample:ok", "sample:consumer-cleanup", "stop", "task:canceled", "defer:second", "defer:first"}
+	if !reflect.DeepEqual(log.list(), want) || !*disposed {
+		t.Fatalf("fixed bindings or cleanup changed: events=%v disposed=%v", log.list(), *disposed)
+	}
+	processtest.AssertClosed(t, client)
+	if snapshot := client.Snapshot(); !snapshot.CleanupKnown || !snapshot.Cleanup.Complete {
+		t.Fatal(snapshot)
+	}
 }
 
 func TestRemoteTaskFailureFreezesClosureWhileProcessLives(t *testing.T) {

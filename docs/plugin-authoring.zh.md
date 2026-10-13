@@ -88,6 +88,8 @@ return gordis.Provide[Store](scope, StoreKey, store)
 
 - `gordis.Get(scope, key)` 是包级泛型函数，在 `Activate` 中取得本代的固定依赖；它不是
   Scope 方法。
+- `gordis.Lookup(scope, key)` 在本代 View 中探测可选服务，无需声明 `Requires`，不建立依赖边，
+  也不取得租约。
 - `scope.Go(name, fn)` 创建并管理长期任务；非取消错误会使本代失败。任务必须等本代 Ready
   后才能开始时使用 `scope.AfterReady(name, fn)`。
 - `scope.Acquire()` 为调用方正在执行的工作持有租约，但不创建 goroutine；调用方必须
@@ -95,8 +97,94 @@ return gordis.Provide[Store](scope, StoreKey, store)
 - `scope.OnStop(name, fn)` 在任务取消前关闭 listener、route 或 subscription 等入口。
 - `scope.Defer(name, fn)` 在任务和租约排空后逆序释放最终资源。
 
-不要让 Scope、Service 或未受管 goroutine 跨 generation 逃逸。清理登记被拒绝时，调用方仍
-拥有刚取得的资源，必须立即自行释放。
+不要让调用方的 Scope、固定依赖或未受管 goroutine 跨其自身 generation 逃逸。清理登记被
+拒绝时，调用方仍拥有刚取得的资源，必须立即自行释放。
+
+### 按需查询可选服务
+
+必需的数据库使用 `Requires + Get`，可能缺失的缓存使用 `Lookup`。在 `Activate` 中注入
+查询函数，每次请求调用该函数：
+
+```go
+type ValueStore interface {
+    Get(context.Context, string) ([]byte, error)
+}
+
+var DatabaseKey = gordis.NewKey[ValueStore]("example.database/1")
+var CacheKey = gordis.NewKey[ValueStore]("example.cache/1")
+
+type readerPlugin struct {
+    database    ValueStore
+    lookupCache func() (ValueStore, bool, error)
+}
+
+func (*readerPlugin) Spec() gordis.PluginSpec {
+    return gordis.PluginSpec{
+        ID:       "reader",
+        Requires: []gordis.ServiceSpec{DatabaseKey.Spec()},
+        New:      func() gordis.Plugin { return new(readerPlugin) },
+    }
+}
+
+func (p *readerPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
+    database, err := gordis.Get(scope, DatabaseKey)
+    if err != nil {
+        return err
+    }
+    p.database = database
+    p.lookupCache = func() (ValueStore, bool, error) {
+        return gordis.Lookup(scope, CacheKey)
+    }
+    return nil
+}
+
+func (p *readerPlugin) Get(ctx context.Context, id string) ([]byte, error) {
+    cache, found, err := p.lookupCache()
+    if err != nil {
+        return nil, err
+    }
+    if found {
+        return cache.Get(ctx, id)
+    }
+    return p.database.Get(ctx, id)
+}
+```
+
+查询函数捕获本代 Scope，每次调用都重新执行 Lookup。应用应在初始化完成后发布请求入口，
+Ready 后才接受请求。并发入口需要在 reader 清理前拒绝新请求并等待已有请求结束；请求租约
+的用法见[生命周期](lifecycle.zh.md)。这不延长可选 cache provider 的生命周期。示例只在
+缓存缺失时降级；缓存调用失败后是否降级，由业务根据错误类型和请求取消状态决定。
+
+运行[可选服务示例](../examples/optional-service/README.zh.md)，可以观察同一代 reader 的
+数据库 → 缓存 → 数据库请求路径。
+
+`Lookup` 返回 `(value, found, err)`，只查询调用方固定 View 对应的标签，不会寻找其他标签
+作为降级。缓存缺失时 reader 保持 Ready；缓存出现、移除或替换都不会重启它。Key 的名称与
+准确 Go 类型必须匹配 provider 契约。
+
+| 返回结果 | 含义 |
+| --- | --- |
+| 零值、`false`、`nil` | 该标签没有已发布且 Ready 的 provider，或 provider 已冻结/正在停止 |
+| 服务值、`true`、`nil` | 查询这一刻当前 provider 可用 |
+| 零值、`false`、错误 | Key 无效或契约类型不匹配；nil/关闭/冻结调用方返回 `ErrClosed`；过期 generation 返回 `ErrStale`；有效 detached/process Scope 返回 `ErrLookupUnsupported` |
+
+调用方必须是 Host 中当前有效、未冻结的 generation。`Activate` 中可以查询其他 Ready
+provider，自身 `Provide` 暂存的值要等 Ready 发布后才能查到。未声明的 `Get` 仍报错，即使
+`Lookup` 能找到该服务。
+
+```text
+请求取得 cache → provider 被卸载 → 请求继续调用旧 cache
+```
+
+卸载后新查询不再返回旧 provider。已取得的对象仍是普通 Go 值，不自动跟随替换，也不会
+自动失效；其方法可能继续成功，也可能因资源关闭或取消而失败。框架不保证这些调用成功，
+也不等待它们结束才卸载 provider。需要 provider 存活到 consumer 清理结束时，使用
+`Requires + Get`。
+
+后台功能需要随服务出现而启动、消失而停止时，挂载一个声明该 `Requires` 的已登记 consumer
+child。服务缺失时 child 保持 Pending，出现后取得独立生命周期。child 的 Pending 或失败
+不改变 parent readiness，ownership 不隐含 readiness 依赖。这表达条件子功能；请求路径中的
+缺失降级使用 `Lookup`。
 
 ## 4. 在应用中装配并隔离 root 实例
 
@@ -171,6 +259,10 @@ middleware 返回前调用一次的 `Next` 组合 middleware。已经在返回�
 Adapter 使用业务 Plugin 的逻辑 ID 注册；consumer 继续依赖同一个 `Key[T]`，Adapter 在
 `Activate` 中发布类型化代理。只有请求/响应、取消和错误语义清晰的契约适合跨进程。详见
 [进程协议](process-protocol.zh.md)。
+
+`Lookup` 要求调用方带有本地 Host。Host 中的调用方可以查询可见的 Adapter 代理；子进程内
+的 detached Scope 则返回 `ErrLookupUnsupported`，包括已能通过固定 `Get` 绑定读取的服务。
+当前没有跨进程动态查询协议。
 
 跨进程事件同样不改变业务 Plugin：它仍使用 `events.Bind(scope)`。装配层在 Adapter 与
 Serve 两侧用相同的 `BindTopic/BindHook` 登记显式 `EventCodec` 和 Publish/Subscribe 方向；

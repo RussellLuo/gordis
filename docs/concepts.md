@@ -19,6 +19,7 @@ Host ──activates──> instance generation
                     ├─ runtime Plugin (created by PluginSpec.New())
                     ├─ Scope ──owns──> tasks / leases / cleanup
                     └─ fixed binding: consumer Key + label → provider instance + generation → service value
+Scope ──Lookup(Key + View)──> currently Ready provider (no dependency edge)
 ```
 
 ## From a plugin type to one run
@@ -76,6 +77,37 @@ Plugin code still uses only `StoreKey`; it does not know visibility labels. The
 Host requires one provider per `(Key, label)` and an exact contract-name and Go
 type match at both ends.
 
+## Fixed dependencies and optional discovery
+
+Choose service access by the lifetime the caller needs:
+
+| Access | Declaration | Resolution and lifecycle |
+| --- | --- | --- |
+| `Requires + Get` | The consumer declares the exact Key in `Requires` | Fixed binding for one generation; missing services cause Pending; provider changes stop/restart the consumer; the reference remains valid through consumer cleanup |
+| `Lookup(scope, key)` | No consumer declaration | Current Ready, unfrozen provider at the caller's View label; absence returns zero, `false`, `nil`; no dependency edge, lease, or caller restart |
+
+`Lookup` checks the service name, exact Go contract type, and current provider
+generation. It does not wait or search other labels. The caller must be a
+current, unfrozen Host generation; it can query other Ready services during
+`Activate`, but cannot see its own unpublished staged values. Invalid Keys and
+contract type mismatches are errors. Nil/closed/frozen callers return
+`ErrClosed`; superseded generations return `ErrStale`.
+
+`found=true` establishes availability only at the instant of lookup. A provider
+may be unloaded before the caller uses the object. New queries then miss it or
+return a replacement; the old reference does not update or become invalid
+automatically. Its calls may succeed or fail after resource closure. Lookup
+does not guarantee those calls or delay provider cleanup. Even a lease on the
+caller's Scope does not protect an optional provider.
+
+Use Lookup for request-time fallback, such as choosing a cache when present
+and a required database otherwise. Use a registered child with `Requires` for
+a conditional background feature that should activate and stop with its
+dependency. The child has its own Pending/Ready state and fixed binding; its
+Pending state or failure does not change parent readiness. Ownership does not
+imply a readiness dependency. See [Writing Plugins](plugin-authoring.md) for the
+cache fallback example.
+
 ## Ownership, service dependencies, and visibility
 
 Gordis has three independent relationships:
@@ -130,13 +162,15 @@ access and work admission to shutdown cleanup:
 | Role | API | Semantics |
 | --- | --- | --- |
 | Read a dependency | `gordis.Get(scope, key)` | Read the Service binding fixed when this generation started |
+| Probe an optional service | `gordis.Lookup(scope, key)` | Discover a current Ready service in the fixed View without a dependency or lease |
 | Manage a long-running task | `scope.Go` / `scope.AfterReady` | Start a Scope-supervised task; the latter waits for this generation to become Ready |
 | Protect admitted work | `scope.Acquire` / `scope.AcquireReady` | Hold a manually released request lease; the latter also rejects calls before Ready |
 | Withdraw entrances | `scope.OnStop` | Close listeners, routes, subscriptions, and other entrances before task cancellation |
 | Release final resources | `scope.Defer` | Release resources in reverse order after tasks and leases exit |
 
-`Get` is a package-level generic function that receives a Scope, not a Scope
-method. The Scope fixes its binding and lifetime. `Go` creates and supervises a
+`Get` and `Lookup` are package-level generic functions that receive a Scope,
+not Scope methods. The Scope fixes Get's binding and lifetime, while Lookup
+uses its View and validates the current generation. `Go` creates and supervises a
 goroutine; `Acquire` does not create one, but admits caller-owned work into the
 same shutdown drain barrier. Long-running tasks use the Scope runtime context,
 not the startup context. Service references, Scopes, and background goroutines
@@ -153,6 +187,11 @@ consumer ── Get(GreeterKey) ──> local implementation
 ```
 
 The consumer does not know which process owns the implementation. Process assembly still needs an explicit wire binding because a service name alone cannot define parameter encoding, error mapping, or cancellation semantics. See [Process Protocol](process-protocol.md).
+
+Dynamic Lookup requires a local Host. Such callers can discover visible typed
+Adapter proxies. A detached/process Scope returns `ErrLookupUnsupported`
+instead of absence or a fixed binding; there is no dynamic query channel from
+the child to the Host. Its declared `Get` bindings remain supported.
 
 ## Boundaries
 

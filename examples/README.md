@@ -17,6 +17,7 @@ and an explanation of the implementation.
 | [readiness](readiness/README.md) | Ownership separated from Service readiness |
 | [lifecycle](lifecycle/README.md) | Tasks, request leases, entrance withdrawal, and cleanup |
 | [dynamic](dynamic/README.md) | Provider removal, Pending transition, and Operation Restore |
+| [optional service](optional-service/README.md) | Request-time Lookup and database fallback without consumer restarts |
 
 ## Optional extensions
 

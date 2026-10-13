@@ -19,6 +19,7 @@ Host ──激活──> 实例 generation
                ├─ Plugin 运行对象（由 PluginSpec.New() 创建）
                ├─ Scope ──拥有──> 任务 / 租约 / 清理操作
                └─ 固定绑定：消费者 Key + 标签 → 提供者实例 + generation → 服务值
+Scope ──Lookup(Key + View)──> 当前 Ready 的 provider（不建立依赖边）
 ```
 
 ## 从插件类型到一次运行
@@ -74,6 +75,30 @@ tenantB := host.Env().Isolate(StoreKey, "tenant-b")
 插件内部仍只使用 `StoreKey`，不需要知道可见性标签。Host 要求同一 `(Key, label)` 只有一个
 provider，且两端契约名称与 Go 类型完全一致。
 
+## 固定依赖与可选查询
+
+按调用方需要的生命周期选择服务访问方式：
+
+| 访问方式 | 声明要求 | 解析与生命周期 |
+| --- | --- | --- |
+| `Requires + Get` | consumer 在 `Requires` 中声明准确 Key | 一代内固定 binding；服务缺失时 Pending；provider 变化触发 consumer 停止/换代；引用有效到 consumer 清理结束 |
+| `Lookup(scope, key)` | consumer 无需声明 | 查询当前 View 标签下 Ready、未冻结的 provider；缺失返回零值、`false`、`nil`；不建立依赖边、不取得租约、不触发调用方重启 |
+
+`Lookup` 校验服务名、准确 Go 契约类型和当前 provider generation，不等待，也不跨标签寻找
+服务。调用方必须是 Host 中当前有效、未冻结的 generation；`Activate` 中可查询其他 Ready
+服务，但自身未发布的暂存值不可见。Key 无效或契约类型不匹配返回错误；nil/关闭/冻结调用方
+返回 `ErrClosed`，过期 generation 返回 `ErrStale`。
+
+`found=true` 只表示查询这一刻可用。调用方使用对象前，provider 可能已被卸载；新查询会
+返回缺失或替换后的对象，旧引用不自动更新或失效。资源关闭后旧对象的方法可能继续成功，
+也可能失败。Lookup 不保证这些调用成功，也不延迟 provider 清理。调用方 Scope 上的租约
+同样不保护可选 provider。
+
+请求路径需要“有缓存用缓存、没有则查必需数据库”时使用 Lookup。后台功能需要随依赖出现
+而启动、消失而停止时，挂载声明 `Requires` 的已登记 child。child 有独立的 Pending/Ready
+状态和固定 binding；child 的 Pending 或失败不改变 parent readiness，ownership 不隐含
+readiness 依赖。缓存降级示例见[插件编写](plugin-authoring.zh.md)。
+
 ## 所有权、服务依赖与可见性
 
 Gordis 中有三种彼此独立的关系：
@@ -123,13 +148,15 @@ Pending；启动工具可结合 provider Failure 及 Snapshot 的 `BlockedBy`/`B
 | 作用 | API | 语义 |
 | --- | --- | --- |
 | 读取依赖 | `gordis.Get(scope, key)` | 读取本代启动时固定的 Service binding |
+| 探测可选服务 | `gordis.Lookup(scope, key)` | 在固定 View 中查询当前 Ready 服务，不建立依赖或租约 |
 | 管理长期任务 | `scope.Go` / `scope.AfterReady` | 启动由 Scope 监督的任务；后者等待本代 Ready 后再启动 |
 | 保护已准入工作 | `scope.Acquire` / `scope.AcquireReady` | 持有手动释放的请求租约；后者还会拒绝 Ready 前的调用 |
 | 撤回入口 | `scope.OnStop` | 在取消任务前关闭 listener、route 或 subscription 等入口 |
 | 最终释放 | `scope.Defer` | 在任务和租约退出后逆序释放资源 |
 
-`Get` 是接收 Scope 参数的包级泛型函数，不是 Scope 方法；Scope 为它限定固定 binding 和有效
-生命周期。`Go` 创建并监督 goroutine，`Acquire` 不创建 goroutine，只让调用方正在执行的工作
+`Get` 和 `Lookup` 都是接收 Scope 参数的包级泛型函数，不是 Scope 方法；Scope 为 Get 限定
+固定 binding 和有效生命周期，为 Lookup 提供 View 和当前 generation 校验。`Go` 创建并监督
+goroutine，`Acquire` 不创建 goroutine，只让调用方正在执行的工作
 进入同一个停止排空屏障。长期任务使用 Scope 的运行 context，不使用启动 context；服务引用、
 Scope 和后台 goroutine 都不应逃逸到跨代全局状态。精确停止顺序见[生命周期](lifecycle.zh.md)。
 
@@ -143,6 +170,10 @@ consumer ── Get(GreeterKey) ──> 本地实现
 ```
 
 Consumer 不知道服务来自哪个进程。进程装配仍需显式 wire binding，因为仅凭服务名无法推导参数序列化、错误映射和取消语义。详见[进程协议](process-protocol.zh.md)。
+
+动态 Lookup 要求调用方带有本地 Host，可以查询可见的 Adapter 类型化代理。detached/process
+Scope 返回 `ErrLookupUnsupported`，不会把不支持查询伪装成缺失或固定绑定；子进程到 Host
+尚无动态查询通道。其已声明的 `Get` 固定绑定仍受支持。
 
 ## 边界
 

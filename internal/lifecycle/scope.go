@@ -55,6 +55,14 @@ func (s *Scope) Generation() uint64 { return s.generation }
 
 func (s *Scope) Context() context.Context { return s.ctx }
 
+// IsClosed reads the freeze state without admitting work or acquiring a lease.
+// Hosts may call it while holding their graph lock, in graph -> Scope order.
+func IsClosed(s *Scope) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closed
+}
+
 // Defer registers final cleanup in reverse registration order. Always register
 // immediately after acquisition and release the resource yourself on rejection.
 func (s *Scope) Defer(name string, fn func(context.Context) error) error {

@@ -15,6 +15,7 @@
 | [readiness](readiness/README.zh.md) | 所有权与 Service 就绪状态的分离 |
 | [lifecycle](lifecycle/README.zh.md) | 任务、请求租约、入口撤回和清理 |
 | [dynamic](dynamic/README.zh.md) | provider 移除、Pending 转换和 Operation Restore |
+| [optional service](optional-service/README.zh.md) | 请求时 Lookup、数据库降级与调用方保持同一 generation |
 
 ## 可选扩展
 

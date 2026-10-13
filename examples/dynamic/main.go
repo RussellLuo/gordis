@@ -32,7 +32,7 @@ func (*sourcePlugin) Spec() gordis.PluginSpec {
 }
 
 func (*sourcePlugin) Activate(_ context.Context, scope *gordis.Scope) error {
-	return gordis.Provide[Source](scope, sourceKey, source{generation: scope.Generation()})
+	return scope.Provide[Source](sourceKey, source{generation: scope.Generation()})
 }
 
 type consumerPlugin struct{}
@@ -46,7 +46,7 @@ func (*consumerPlugin) Spec() gordis.PluginSpec {
 }
 
 func (*consumerPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
-	v, err := gordis.Get(scope, sourceKey)
+	v, err := scope.Get(sourceKey)
 	if err == nil {
 		fmt.Printf("consumer generation %d reads source generation %d\n", scope.Generation(), v.Read())
 	}

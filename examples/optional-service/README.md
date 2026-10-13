@@ -26,7 +26,7 @@ reader generation 1: database:item
 
 The reader declares `databaseKey` in `Requires` and obtains the database through
 `Get` during activation. `Activate` also injects `lookupCache`, a function that
-calls `Lookup(scope, cacheKey)` on each request.
+calls `scope.Lookup(cacheKey)` on each request.
 
 `readerCh` transfers the initialized reader to the program. Its buffer lets
 `Activate` send while the program waits for `MountReady`, which guarantees

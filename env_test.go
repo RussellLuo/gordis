@@ -36,7 +36,7 @@ func (*p2Provider) Spec() gordis.PluginSpec {
 
 func (p *p2Provider) Activate(_ context.Context, scope *gordis.Scope) error {
 	var value p2Value = p2ValueString(p.ValueText)
-	return gordis.Provide(scope, p2ValueKey, value)
+	return scope.Provide(p2ValueKey, value)
 }
 
 type p2Consumer struct {
@@ -53,7 +53,7 @@ func (p *p2Consumer) Spec() gordis.PluginSpec {
 }
 
 func (p *p2Consumer) Activate(_ context.Context, scope *gordis.Scope) error {
-	value, err := gordis.Get(scope, p2ValueKey)
+	value, err := scope.Get(p2ValueKey)
 	if err != nil {
 		return err
 	}
@@ -403,19 +403,19 @@ func TestServiceAddressIncludesKeyAndLabel(t *testing.T) {
 	valueA, valueB := 1, 2
 
 	providerA := definition("provider-a", func(_ context.Context, scope *gordis.Scope) error {
-		return gordis.Provide(scope, keyA, &valueA)
+		return scope.Provide(keyA, &valueA)
 	})
 	providerA.Provides = []gordis.ServiceSpec{keyA.Spec()}
 	providerB := definition("provider-b", func(_ context.Context, scope *gordis.Scope) error {
-		return gordis.Provide(scope, keyB, &valueB)
+		return scope.Provide(keyB, &valueB)
 	})
 	providerB.Provides = []gordis.ServiceSpec{keyB.Spec()}
 	consumer := definition("consumer-both", func(_ context.Context, scope *gordis.Scope) error {
-		a, err := gordis.Get(scope, keyA)
+		a, err := scope.Get(keyA)
 		if err != nil {
 			return err
 		}
-		b, err := gordis.Get(scope, keyB)
+		b, err := scope.Get(keyB)
 		if err != nil {
 			return err
 		}

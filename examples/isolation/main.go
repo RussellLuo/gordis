@@ -27,7 +27,7 @@ func (*storePlugin) Spec() gordis.PluginSpec {
 }
 
 func (*storePlugin) Activate(_ context.Context, scope *gordis.Scope) error {
-	return gordis.Provide(scope, storeKey, &store{id: scope.ID()})
+	return scope.Provide(storeKey, &store{id: scope.ID()})
 }
 
 type collectorPlugin struct{}
@@ -41,7 +41,7 @@ func (*collectorPlugin) Spec() gordis.PluginSpec {
 }
 
 func (*collectorPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
-	db, err := gordis.Get(scope, storeKey)
+	db, err := scope.Get(storeKey)
 	if err != nil {
 		return err
 	}

@@ -30,7 +30,7 @@ dependencies. The Host registers the process-backed prototype returned by
 forwards `InstanceSpec.Config` to the same Plugin through `greeterproc.Serve`.
 
 The explicit binding in `greeter/proc` exposes the remote Greeter as the typed
-`greeter.Key`, so the consumer uses the normal `gordis.Get` API without knowing
+`greeter.Key`, so the consumer uses the normal `scope.Get` API without knowing
 where the provider runs. Registering `new(greeter.Plugin)` instead switches to
 Local mode without changing the `InstanceSpec`, configuration, or consumer.
 When `run` returns, `Host.Shutdown` stops and reaps the child process.

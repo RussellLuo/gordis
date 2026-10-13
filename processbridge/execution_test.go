@@ -84,7 +84,7 @@ func (*fixturePlugin) Spec() gordis.PluginSpec {
 }
 
 func (p *fixturePlugin) Activate(ctx context.Context, s *gordis.Scope) error {
-	j, err := gordis.Get(s, journalKey)
+	j, err := s.Get(journalKey)
 	if err != nil {
 		return err
 	}
@@ -94,7 +94,7 @@ func (p *fixturePlugin) Activate(ctx context.Context, s *gordis.Scope) error {
 	if p.Mode == "lookup-unsupported" {
 		// A fixed binding must not masquerade as dynamic discovery in the child.
 		for _, key := range []gordis.Key[journal]{journalKey, gordis.NewKey[journal]("missing")} {
-			value, found, err := gordis.Lookup(s, key)
+			value, found, err := s.Lookup(key)
 			if value != nil || found || !errors.Is(err, gordis.ErrLookupUnsupported) {
 				return fmt.Errorf("process Lookup(%q) = %v, %v, %v", key.Name(), value, found, err)
 			}
@@ -140,7 +140,7 @@ func (p *fixturePlugin) Activate(ctx context.Context, s *gordis.Scope) error {
 	if p.Mode == "missing" {
 		return nil
 	}
-	return gordis.Provide(s, sampleKey, sampleService(sampleFunc(func(ctx context.Context, arg string) (string, error) {
+	return s.Provide(sampleKey, sampleService(sampleFunc(func(ctx context.Context, arg string) (string, error) {
 		if err := j.Record(ctx, "sample:"+arg); err != nil {
 			return "", err
 		}
@@ -307,14 +307,14 @@ func TestPluginLifecycleConsistency(t *testing.T) {
 							}
 						}
 						providerStart := func(_ context.Context, s *gordis.Scope) error {
-							return gordis.Provide(s, journalKey, journal(log))
+							return s.Provide(journalKey, journal(log))
 						}
 						provider := newTestPlugin(
 							"journal", nil, []gordis.ServiceSpec{journalKey.Spec()}, providerStart,
 						)
 						consumerStart := func(_ context.Context, s *gordis.Scope) error {
 							var err error
-							service, err = gordis.Get(s, sampleKey)
+							service, err = s.Get(sampleKey)
 							return err
 						}
 						consumer := newTestPlugin(
@@ -493,7 +493,7 @@ func processHost(
 		if err := s.Defer("provider", cleanup); err != nil {
 			return err
 		}
-		return gordis.Provide(s, journalKey, j)
+		return s.Provide(journalKey, j)
 	}
 	provider := newTestPlugin(
 		"journal", nil, []gordis.ServiceSpec{journalKey.Spec()}, providerStart,
@@ -501,7 +501,7 @@ func processHost(
 	consumerStart := func(_ context.Context, s *gordis.Scope) error {
 		consumerScope = s
 		var err error
-		service, err = gordis.Get(s, sampleKey)
+		service, err = s.Get(sampleKey)
 		if err != nil {
 			return err
 		}
@@ -758,7 +758,7 @@ func TestObserverPanicCannotOrphanStartedProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	providerStart := func(_ context.Context, s *gordis.Scope) error {
-		return gordis.Provide(s, journalKey, journal(&logbook{}))
+		return s.Provide(journalKey, journal(&logbook{}))
 	}
 	provider := newTestPlugin(
 		"journal", nil, []gordis.ServiceSpec{journalKey.Spec()}, providerStart,

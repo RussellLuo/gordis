@@ -129,7 +129,7 @@ func (p *bridgeEventPlugin) Activate(ctx context.Context, scope *gordis.Scope) e
 		_, err := events.Bind(scope).On(badTopic, func(context.Context, int) error { return nil })
 		return err
 	}
-	journal, err := gordis.Get(scope, journalKey)
+	journal, err := scope.Get(journalKey)
 	if err != nil {
 		return err
 	}
@@ -187,7 +187,7 @@ func (p *bridgeEventPlugin) Activate(ctx context.Context, scope *gordis.Scope) e
 			return err
 		}
 	}
-	return gordis.Provide[eventControl](scope, eventControlKey, eventController{binding: binding})
+	return scope.Provide[eventControl](eventControlKey, eventController{binding: binding})
 }
 
 func TestBridgeEventChild(t *testing.T) {
@@ -278,7 +278,7 @@ func newEventBridgeFixture(t *testing.T, plugins ...gordis.Plugin) *eventBridgeF
 	t.Helper()
 	fixture := &eventBridgeFixture{t: t, log: new(synchronizedLog)}
 	provider := newTestPlugin("event-journal", nil, []gordis.ServiceSpec{journalKey.Spec()}, func(_ context.Context, scope *gordis.Scope) error {
-		return gordis.Provide[journal](scope, journalKey, fixture.log)
+		return scope.Provide[journal](journalKey, fixture.log)
 	})
 	publisher := newTestPlugin("local-event-publisher", []gordis.ServiceSpec{events.BusKey.Spec()}, nil, func(_ context.Context, scope *gordis.Scope) error {
 		fixture.pub = scope
@@ -330,7 +330,7 @@ func localSubscriber(id string, log *synchronizedLog) gordis.Plugin {
 
 func controlConsumer(id string, target *eventControl) gordis.Plugin {
 	return newTestPlugin(id, []gordis.ServiceSpec{eventControlKey.Spec()}, nil, func(_ context.Context, scope *gordis.Scope) error {
-		control, err := gordis.Get(scope, eventControlKey)
+		control, err := scope.Get(eventControlKey)
 		if err == nil {
 			*target = control
 		}
@@ -440,7 +440,7 @@ func TestProcessEventUsesHostTopicAndSourceView(t *testing.T) {
 		[]gordis.ServiceSpec{sourceKey.Spec()},
 		func(_ context.Context, scope *gordis.Scope) error {
 			sourceScope = scope
-			return gordis.Provide(scope, sourceKey, 1)
+			return scope.Provide(sourceKey, 1)
 		},
 	)
 	fixture := newEventBridgeFixture(t, eventAdapter(nil, bridgeEvents), sourcePlugin)

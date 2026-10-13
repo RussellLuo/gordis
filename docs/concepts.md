@@ -84,7 +84,7 @@ Choose service access by the lifetime the caller needs:
 | Access | Declaration | Resolution and lifecycle |
 | --- | --- | --- |
 | `Requires + Get` | The consumer declares the exact Key in `Requires` | Fixed binding for one generation; missing services cause Pending; provider changes stop/restart the consumer; the reference remains valid through consumer cleanup |
-| `Lookup(scope, key)` | No consumer declaration | Current Ready, unfrozen provider at the caller's View label; absence returns zero, `false`, `nil`; no dependency edge, lease, or caller restart |
+| `scope.Lookup(key)` | No consumer declaration | Current Ready, unfrozen provider at the caller's View label; absence returns zero, `false`, `nil`; no dependency edge, lease, or caller restart |
 
 `Lookup` checks the service name, exact Go contract type, and current provider
 generation. It does not wait or search other labels. The caller must be a
@@ -161,16 +161,18 @@ access and work admission to shutdown cleanup:
 
 | Role | API | Semantics |
 | --- | --- | --- |
-| Read a dependency | `gordis.Get(scope, key)` | Read the Service binding fixed when this generation started |
-| Probe an optional service | `gordis.Lookup(scope, key)` | Discover a current Ready service in the fixed View without a dependency or lease |
+| Provide a service | `scope.Provide(key, value)` | Stage a declared value for publication after successful activation |
+| Check own publication | `scope.HasProvided(key.Spec())` | Check this generation's declared and committed service, not View availability |
+| Read a dependency | `scope.Get(key)` | Read the Service binding fixed when this generation started |
+| Probe an optional service | `scope.Lookup(key)` | Discover a current Ready service in the fixed View without a dependency or lease |
 | Manage a long-running task | `scope.Go` / `scope.AfterReady` | Start a Scope-supervised task; the latter waits for this generation to become Ready |
 | Protect admitted work | `scope.Acquire` / `scope.AcquireReady` | Hold a manually released request lease; the latter also rejects calls before Ready |
 | Withdraw entrances | `scope.OnStop` | Close listeners, routes, subscriptions, and other entrances before task cancellation |
 | Release final resources | `scope.Defer` | Release resources in reverse order after tasks and leases exit |
 
-`Get` and `Lookup` are package-level generic functions that receive a Scope,
-not Scope methods. The Scope fixes Get's binding and lifetime, while Lookup
-uses its View and validates the current generation. `Go` creates and supervises a
+`Provide`, `Get`, and `Lookup` are generic Scope methods. The Scope fixes Get's
+binding and lifetime, while Lookup uses its View and validates the current
+generation. `Go` creates and supervises a
 goroutine; `Acquire` does not create one, but admits caller-owned work into the
 same shutdown drain barrier. Long-running tasks use the Scope runtime context,
 not the startup context. Service references, Scopes, and background goroutines

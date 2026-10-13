@@ -190,7 +190,7 @@ func (b *localBus) dispatch(
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
-	if source != nil && !publisher.Provides(source.service) {
+	if source != nil && !publisher.HasProvided(source.service) {
 		return nil, false, fmt.Errorf("events: current generation did not publish service %q", source.name)
 	}
 

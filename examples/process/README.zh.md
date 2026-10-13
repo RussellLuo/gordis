@@ -28,7 +28,7 @@ Hello, Gordis!
 executable，并经由 `greeterproc.Serve` 将 `InstanceSpec.Config` 转交给同一个 Plugin。
 
 `greeter/proc` 中的显式 binding 将远端 Greeter 公布为类型化 `greeter.Key`，因此 consumer
-仍通过普通的 `gordis.Get` API 使用 Service，无需知道 provider 运行在哪个进程。装配时改为
+仍通过普通的 `scope.Get` API 使用 Service，无需知道 provider 运行在哪个进程。装配时改为
 登记 `new(greeter.Plugin)` 即可切换到 Local 模式，`InstanceSpec`、配置和 consumer 均无需
 改变。`run` 返回时，`Host.Shutdown` 会停止并回收子进程。
 

@@ -58,5 +58,5 @@ func (p *Plugin) Activate(_ context.Context, scope *gordis.Scope) error {
 	}); err != nil {
 		return err
 	}
-	return gordis.Provide[Bus](scope, BusKey, bus)
+	return scope.Provide[Bus](BusKey, bus)
 }

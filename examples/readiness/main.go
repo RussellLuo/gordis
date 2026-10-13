@@ -31,7 +31,7 @@ func (*backendPlugin) Spec() gordis.PluginSpec {
 }
 
 func (*backendPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
-	return gordis.Provide[metricsBackend](scope, metricsBackendKey, backendValue("prometheus"))
+	return scope.Provide[metricsBackend](metricsBackendKey, backendValue("prometheus"))
 }
 
 type metricsPlugin struct{}
@@ -45,7 +45,7 @@ func (*metricsPlugin) Spec() gordis.PluginSpec {
 }
 
 func (*metricsPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
-	backend, err := gordis.Get(scope, metricsBackendKey)
+	backend, err := scope.Get(metricsBackendKey)
 	if err != nil {
 		return err
 	}

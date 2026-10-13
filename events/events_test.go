@@ -192,7 +192,7 @@ func TestRoutingSourceGlobalAndTopicPartitions(t *testing.T) {
 		provides: []gordis.ServiceSpec{sourceKey.Spec()},
 		activate: func(_ context.Context, scope *gordis.Scope) error {
 			writerScope = scope
-			return gordis.Provide(scope, sourceKey, 1)
+			return scope.Provide(sourceKey, 1)
 		},
 	}
 	host := newHost(t,

@@ -17,8 +17,9 @@ type Store interface {
 var StoreKey = gordis.NewKey[Store]("example.store/1")
 ```
 
-`StoreKey.Spec()` 用于 `PluginSpec.Requires` / `Provides`；`Provide` 提交运行时值，`Get`
-读取 consumer generation 的固定 binding。
+`StoreKey.Spec()` 用于 `PluginSpec.Requires` / `Provides`；`scope.Provide` 提交运行时值，
+`scope.Get` 读取 consumer generation 的固定 binding。`scope.HasProvided(StoreKey.Spec())`
+检查本代是否声明并成功发布了该服务，不查询其他 provider；暂存值在发布提交前返回 false。
 
 ## 2. 实现 Plugin
 
@@ -46,7 +47,7 @@ func (p *Writer) Validate() error {
 }
 
 func (p *Writer) Activate(ctx context.Context, scope *gordis.Scope) error {
-    store, err := gordis.Get(scope, StoreKey)
+    store, err := scope.Get(StoreKey)
     if err != nil {
         return err
     }
@@ -81,14 +82,15 @@ if err := scope.Defer("store", func(context.Context) error {
     _ = store.Close()
     return err
 }
-return gordis.Provide[Store](scope, StoreKey, store)
+return scope.Provide[Store](StoreKey, store)
 ```
 
 这些 API 分别处理依赖、工作准入和停止清理：
 
-- `gordis.Get(scope, key)` 是包级泛型函数，在 `Activate` 中取得本代的固定依赖；它不是
-  Scope 方法。
-- `gordis.Lookup(scope, key)` 在本代 View 中探测可选服务，无需声明 `Requires`，不建立依赖边，
+- `scope.Provide(key, value)` 暂存已声明的服务，待 `Activate` 成功后发布。
+  `PluginSpec.Provides` 声明契约，`scope.HasProvided(key.Spec())` 检查本代已提交的发布。
+- `scope.Get(key)` 是 Scope 的泛型方法，在 `Activate` 中取得本代的固定依赖。
+- `scope.Lookup(key)` 在本代 View 中探测可选服务，无需声明 `Requires`，不建立依赖边，
   也不取得租约。
 - `scope.Go(name, fn)` 创建并管理长期任务；非取消错误会使本代失败。任务必须等本代 Ready
   后才能开始时使用 `scope.AfterReady(name, fn)`。
@@ -127,13 +129,13 @@ func (*readerPlugin) Spec() gordis.PluginSpec {
 }
 
 func (p *readerPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
-    database, err := gordis.Get(scope, DatabaseKey)
+    database, err := scope.Get(DatabaseKey)
     if err != nil {
         return err
     }
     p.database = database
     p.lookupCache = func() (ValueStore, bool, error) {
-        return gordis.Lookup(scope, CacheKey)
+        return scope.Lookup(CacheKey)
     }
     return nil
 }

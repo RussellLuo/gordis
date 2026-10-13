@@ -28,7 +28,7 @@ func (*p3Provider) Spec() gordis.PluginSpec {
 }
 
 func (*p3Provider) Activate(_ context.Context, scope *gordis.Scope) error {
-	return gordis.Provide[p3Service](scope, p3Key, p3ServiceValue("child"))
+	return scope.Provide[p3Service](p3Key, p3ServiceValue("child"))
 }
 
 type p3Consumer struct{ values chan<- string }
@@ -42,7 +42,7 @@ func (p *p3Consumer) Spec() gordis.PluginSpec {
 }
 
 func (p *p3Consumer) Activate(_ context.Context, scope *gordis.Scope) error {
-	value, err := gordis.Get(scope, p3Key)
+	value, err := scope.Get(p3Key)
 	if err == nil && p.values != nil {
 		p.values <- value.Value()
 	}
@@ -213,7 +213,7 @@ func (*p3CycleParent) Activate(ctx context.Context, scope *gordis.Scope) error {
 	if err != nil {
 		return err
 	}
-	return gordis.Provide[p3Service](scope, p3Key, p3ServiceValue("parent"))
+	return scope.Provide[p3Service](p3Key, p3ServiceValue("parent"))
 }
 
 func TestNestedMountDetectsActivationWaitCycleAndRollsBackSubtree(t *testing.T) {
@@ -256,7 +256,7 @@ func (*p3PublishingParent) Activate(ctx context.Context, scope *gordis.Scope) er
 	if _, err := scope.Env().Mount(ctx, gordis.InstanceSpec{ID: "consumer", Plugin: "p3-consumer"}); err != nil {
 		return err
 	}
-	return gordis.Provide[p3Service](scope, p3Key, p3ServiceValue("ancestor"))
+	return scope.Provide[p3Service](p3Key, p3ServiceValue("ancestor"))
 }
 
 func TestNonBlockingNestedMountWaitsForAncestorPublication(t *testing.T) {

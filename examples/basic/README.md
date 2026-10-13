@@ -24,8 +24,8 @@ bob: Hello, Bob
 ## How it works
 
 `greeterKey` defines the shared contract. The provider declares it in
-`Provides` and publishes a value with `gordis.Provide`; each consumer declares
-it in `Requires` and reads its fixed binding with `gordis.Get`.
+`Provides` and publishes a value with `scope.Provide`; each consumer declares
+it in `Requires` and reads its fixed binding with `scope.Get`.
 
 `NewHost` registers only the two plugin types. The program then mounts the
 provider, Alice, and Bob directly through the root Env with `MountReady`. The

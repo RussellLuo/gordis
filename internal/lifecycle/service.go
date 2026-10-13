@@ -72,9 +72,9 @@ func Get[T any](s *Scope, k ServiceSpec) (T, error) {
 	return v, nil
 }
 
-// Provides reports whether the Ready generation declared and committed the
+// HasProvided reports whether the generation declared and committed the
 // exact service contract. It is read-only support for optional routing modules.
-func Provides(s *Scope, k ServiceSpec) bool {
+func HasProvided(s *Scope, k ServiceSpec) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.published || s.provides[k.name] != k.typ {

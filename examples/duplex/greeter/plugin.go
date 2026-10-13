@@ -33,11 +33,11 @@ func (*Plugin) Spec() gordis.PluginSpec {
 }
 
 func (*Plugin) Activate(_ context.Context, scope *gordis.Scope) error {
-	directory, err := gordis.Get(scope, UserDirectoryKey)
+	directory, err := scope.Get(UserDirectoryKey)
 	if err != nil {
 		return err
 	}
-	return gordis.Provide(scope, GreeterKey, Greeter(service{directory: directory}))
+	return scope.Provide(GreeterKey, Greeter(service{directory: directory}))
 }
 
 type service struct {

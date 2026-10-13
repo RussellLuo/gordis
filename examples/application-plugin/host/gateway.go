@@ -52,7 +52,7 @@ func (p *gatewayPlugin) Activate(ctx context.Context, scope *gordis.Scope) error
 	if b.digest != p.Digest {
 		return fmt.Errorf("bundle changed")
 	}
-	service, err := gordis.Get(scope, appplugin.EndpointsKey)
+	service, err := scope.Get(appplugin.EndpointsKey)
 	if err != nil {
 		return err
 	}

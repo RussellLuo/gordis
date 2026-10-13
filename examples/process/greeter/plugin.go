@@ -39,7 +39,7 @@ func (p *Plugin) Validate() error {
 }
 
 func (p *Plugin) Activate(_ context.Context, scope *gordis.Scope) error {
-	return gordis.Provide(scope, Key, Greeter(service{prefix: p.Prefix}))
+	return scope.Provide(Key, Greeter(service{prefix: p.Prefix}))
 }
 
 type service struct {

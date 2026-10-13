@@ -86,7 +86,7 @@ func Provide(scope *gordis.Scope, endpoints ...Endpoint) error {
 			return err
 		}
 	}
-	return gordis.Provide(scope, EndpointsKey, Endpoints(fixedEndpoints(endpoints)))
+	return scope.Provide(EndpointsKey, Endpoints(fixedEndpoints(endpoints)))
 }
 
 // StartHTTP starts a private loopback data plane inside the Plugin's Scope.

@@ -57,8 +57,7 @@ Forgetting it leaves background cleanup waiting for that lease. A public entranc
 that must only admit calls after Ready can use `AcquireReady` instead.
 
 A raw service reference without a lease is not protected from concurrent
-shutdown. `gordis.Get` is a package-level function that receives a Scope; it
-returns `ErrClosed` after that Scope freezes. Cleanup callbacks should use
+shutdown. `scope.Get` returns `ErrClosed` after that Scope freezes. Cleanup callbacks should use
 dependencies captured during startup instead of calling `Get` again.
 
 ## Timeouts and residuals

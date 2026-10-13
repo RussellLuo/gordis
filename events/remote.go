@@ -219,7 +219,7 @@ func (b *remoteBus) dispatch(
 	}
 	var sourceSpec *gordis.ServiceSpec
 	if source != nil {
-		if !publisher.Provides(source.service) {
+		if !publisher.HasProvided(source.service) {
 			return nil, false, fmt.Errorf("events: current generation did not publish service %q", source.name)
 		}
 		copy := source.service

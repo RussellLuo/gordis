@@ -32,8 +32,8 @@ func Bind[T any](key gordis.Key[T], client func(process.Caller) T, handler func(
 		spec:    key.Spec(),
 		client:  func(c process.Caller) any { return client(c) },
 		handler: func(v any) process.CallHandler { return handler(v.(T)) },
-		get:     func(s *gordis.Scope) (any, error) { return gordis.Get(s, key) },
-		provide: func(s *gordis.Scope, c process.Caller) error { return gordis.Provide(s, key, client(c)) },
+		get:     func(s *gordis.Scope) (any, error) { return s.Get(key) },
+		provide: func(s *gordis.Scope, c process.Caller) error { return s.Provide(key, client(c)) },
 	}
 }
 

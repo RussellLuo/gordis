@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/RussellLuo/gordis"
 	"github.com/RussellLuo/gordis/internal/lifecycle"
@@ -31,7 +33,7 @@ func lookupHost(t *testing.T, plugins ...gordis.Plugin) *gordis.Host {
 
 func assertLookup[T comparable](t *testing.T, s *gordis.Scope, key gordis.Key[T], want T, found bool) {
 	t.Helper()
-	value, ok, err := gordis.Lookup(s, key)
+	value, ok, err := s.Lookup(key)
 	if err != nil || ok != found || value != want {
 		t.Fatalf("Lookup(%q) = %v, %v, %v; want %v, %v, nil", key.Name(), value, ok, err, want, found)
 	}
@@ -39,7 +41,7 @@ func assertLookup[T comparable](t *testing.T, s *gordis.Scope, key gordis.Key[T]
 
 func assertLookupError[T comparable](t *testing.T, s *gordis.Scope, key gordis.Key[T], want error) {
 	t.Helper()
-	value, found, err := gordis.Lookup(s, key)
+	value, found, err := s.Lookup(key)
 	var zero T
 	if value != zero || found || !errors.Is(err, want) {
 		t.Fatalf("Lookup(%q) = %v, %v, %v; want zero, false, %v", key.Name(), value, found, err, want)
@@ -48,7 +50,7 @@ func assertLookupError[T comparable](t *testing.T, s *gordis.Scope, key gordis.K
 
 func assertLookupContextError[T comparable](t *testing.T, s *gordis.Scope, key gordis.Key[T], message string) {
 	t.Helper()
-	value, found, err := gordis.Lookup(s, key)
+	value, found, err := s.Lookup(key)
 	var zero T
 	if value != zero || found || err == nil || !strings.Contains(err.Error(), message) ||
 		!strings.Contains(err.Error(), s.ID()) || !strings.Contains(err.Error(), key.Name()) {
@@ -68,7 +70,7 @@ func TestLookupOptionalFallbackAndProviderChanges(t *testing.T) {
 	}
 	provider := definition("cache", func(_ context.Context, s *gordis.Scope) error {
 		value := int(s.Generation())
-		return gordis.Provide(s, valueKey, &value)
+		return s.Provide(valueKey, &value)
 	})
 	provider.Provides = []gordis.ServiceSpec{valueKey.Spec()}
 	h := lookupHost(t, caller, provider, new(p2Provider))
@@ -80,10 +82,10 @@ func TestLookupOptionalFallbackAndProviderChanges(t *testing.T) {
 	must(t, err)
 	s := recv(t, scopes)
 	initial := find(h, "caller")
-	database, err := gordis.Get(s, p2ValueKey)
+	database, err := s.Get(p2ValueKey)
 	must(t, err)
 	read := func() string {
-		cache, found, err := gordis.Lookup(s, valueKey)
+		cache, found, err := s.Lookup(valueKey)
 		must(t, err)
 		if found {
 			return fmt.Sprintf("cache:%d", *cache)
@@ -104,22 +106,22 @@ func TestLookupOptionalFallbackAndProviderChanges(t *testing.T) {
 		t.Fatal(got)
 	}
 	unchanged()
-	if _, err := gordis.Get(s, valueKey); err == nil || !strings.Contains(err.Error(), "has not declared dependency") {
+	if _, err := s.Get(valueKey); err == nil || !strings.Contains(err.Error(), "has not declared dependency") {
 		t.Fatalf("undeclared Get = %v", err)
 	}
 	p, err := h.Env().MountReady(deadline(t), gordis.InstanceSpec{ID: "cache", Plugin: "cache"})
 	must(t, err)
-	old, found, err := gordis.Lookup(s, valueKey)
+	old, found, err := s.Lookup(valueKey)
 	if err != nil || !found || old == nil || read() != "cache:1" {
 		t.Fatalf("cache appearance: %v, %v, %v", old, found, err)
 	}
-	if value, err := gordis.Get(s, valueKey); value != nil || err == nil || !strings.Contains(err.Error(), "has not declared dependency") {
+	if value, err := s.Get(valueKey); value != nil || err == nil || !strings.Contains(err.Error(), "has not declared dependency") {
 		t.Fatalf("undeclared Get with a Ready provider = %v, %v", value, err)
 	}
 	unchanged()
 	must(t, p.Restart(deadline(t)))
 	must(t, p.WaitReady(deadline(t)))
-	next, found, err := gordis.Lookup(s, valueKey)
+	next, found, err := s.Lookup(valueKey)
 	if err != nil || !found || next == nil || next == old || *old != 1 || *next != 2 || read() != "cache:2" {
 		t.Fatalf("replacement: old=%v next=%v found=%v err=%v", old, next, found, err)
 	}
@@ -145,19 +147,19 @@ func TestLookupActivationPublicationAndFreeze(t *testing.T) {
 	databaseKey := gordis.NewKey[*int]("lookup.database")
 	databaseValue, cacheValue := 42, 7
 	database := definition("database", func(_ context.Context, s *gordis.Scope) error {
-		return gordis.Provide(s, databaseKey, &databaseValue)
+		return s.Provide(databaseKey, &databaseValue)
 	})
 	database.Provides = []gordis.ServiceSpec{databaseKey.Spec()}
 	provider := definition("cache", func(_ context.Context, s *gordis.Scope) error {
 		// Activate can discover other Ready services without Requires.
-		value, found, err := gordis.Lookup(s, databaseKey)
+		value, found, err := s.Lookup(databaseKey)
 		if err != nil || !found || value != &databaseValue {
 			return fmt.Errorf("lookup during Activate: %v, %v, %v", value, found, err)
 		}
-		if err := gordis.Provide(s, valueKey, &cacheValue); err != nil {
+		if err := s.Provide(valueKey, &cacheValue); err != nil {
 			return err
 		}
-		value, found, err = gordis.Lookup(s, valueKey)
+		value, found, err = s.Lookup(valueKey)
 		if err != nil || found || value != nil {
 			return fmt.Errorf("unpublished self lookup: %v, %v, %v", value, found, err)
 		}
@@ -208,10 +210,10 @@ func TestLookupPendingProviderBecomesVisibleAfterDependencyAppears(t *testing.T)
 	scopes := make(chan *gordis.Scope, 1)
 	value := 42
 	provider := definition("cache", func(_ context.Context, s *gordis.Scope) error {
-		if _, err := gordis.Get(s, p2ValueKey); err != nil {
+		if _, err := s.Get(p2ValueKey); err != nil {
 			return err
 		}
-		return gordis.Provide(s, valueKey, &value)
+		return s.Provide(valueKey, &value)
 	})
 	provider.Requires = []gordis.ServiceSpec{p2ValueKey.Spec()}
 	provider.Provides = []gordis.ServiceSpec{valueKey.Spec()}
@@ -238,10 +240,10 @@ func TestLookupViewIsolationUsesNameAndFixedLabel(t *testing.T) {
 	otherKey := gordis.NewKey[*int]("lookup.other")
 	provider := definition("provider", func(_ context.Context, s *gordis.Scope) error {
 		cache, other := new(int), new(int)
-		if err := gordis.Provide(s, valueKey, cache); err != nil {
+		if err := s.Provide(valueKey, cache); err != nil {
 			return err
 		}
-		if err := gordis.Provide(s, otherKey, other); err != nil {
+		if err := s.Provide(otherKey, other); err != nil {
 			return err
 		}
 		provided <- [2]*int{cache, other}
@@ -297,7 +299,7 @@ func TestLookupInvalidKeysExactTypesAndCallerLifetime(t *testing.T) {
 	// the concrete type nor any is the exact declared contract type.
 	assertLookupContextError(t, s, gordis.NewKey[any](p2ValueKey.Name()), "contract mismatch")
 	assertLookupContextError(t, s, gordis.NewKey[p2ValueString](p2ValueKey.Name()), "contract mismatch")
-	value, found, err := gordis.Lookup(s, p2ValueKey)
+	value, found, err := s.Lookup(p2ValueKey)
 	if err != nil || !found || value == nil {
 		t.Fatalf("exact interface contract rejected: %v, %v, %v", value, found, err)
 	}
@@ -328,7 +330,7 @@ func TestLookupDoesNotDrainOptionalCall(t *testing.T) {
 		if err := s.Defer("resource", func(context.Context) error { closed.Store(true); close(disposed); return nil }); err != nil {
 			return err
 		}
-		return gordis.Provide(s, key, func() error {
+		return s.Provide(key, func() error {
 			close(entered)
 			<-resume
 			if closed.Load() {
@@ -345,7 +347,7 @@ func TestLookupDoesNotDrainOptionalCall(t *testing.T) {
 	s := recv(t, scopes)
 	p, err := h.Env().MountReady(deadline(t), gordis.InstanceSpec{ID: "provider", Plugin: "provider"})
 	must(t, err)
-	call, found, err := gordis.Lookup(s, key)
+	call, found, err := s.Lookup(key)
 	if err != nil || !found || call == nil {
 		t.Fatalf("Lookup = %v, %v, %v", call == nil, found, err)
 	}
@@ -358,7 +360,7 @@ func TestLookupDoesNotDrainOptionalCall(t *testing.T) {
 	// No release function or optional-call completion is needed for unload.
 	must(t, p.Unmount(deadline(t)))
 	recv(t, disposed)
-	value, found, err := gordis.Lookup(s, key)
+	value, found, err := s.Lookup(key)
 	if value != nil || found || err != nil {
 		t.Fatalf("unloaded provider visible: %v, %v, %v", value == nil, found, err)
 	}
@@ -381,7 +383,7 @@ func TestLookupConcurrentStopAndReplacement(t *testing.T) {
 		if err := s.OnStop("gate", func(context.Context) error { stopping <- s.Generation(); <-proceed; return nil }); err != nil {
 			return err
 		}
-		return gordis.Provide(s, valueKey, &value)
+		return s.Provide(valueKey, &value)
 	})
 	provider.Provides = []gordis.ServiceSpec{valueKey.Spec()}
 	h := lookupHost(t, lookupCaller(scopes), provider)
@@ -397,7 +399,7 @@ func TestLookupConcurrentStopAndReplacement(t *testing.T) {
 	for range 4 {
 		go func() {
 			// Synchronize after a real query, so replacement starts with active readers.
-			value, found, err := gordis.Lookup(s, valueKey)
+			value, found, err := s.Lookup(valueKey)
 			if err != nil || !found || value == nil || *value != 1 {
 				results <- fmt.Errorf("initial concurrent Lookup = %v, %v, %v", value, found, err)
 				started <- struct{}{}
@@ -405,7 +407,7 @@ func TestLookupConcurrentStopAndReplacement(t *testing.T) {
 			}
 			started <- struct{}{}
 			for stopReaders.Err() == nil {
-				value, found, err := gordis.Lookup(s, valueKey)
+				value, found, err := s.Lookup(valueKey)
 				if err != nil || (found && (value == nil || *value < 1)) || (!found && value != nil) {
 					results <- fmt.Errorf("concurrent Lookup = %v, %v, %v", value, found, err)
 					return
@@ -425,7 +427,7 @@ func TestLookupConcurrentStopAndReplacement(t *testing.T) {
 		recv(t, started)
 	}
 	for generation := uint64(1); generation <= 8; generation++ {
-		old, found, err := gordis.Lookup(s, valueKey)
+		old, found, err := s.Lookup(valueKey)
 		if err != nil || !found || old == nil || *old != int(generation) {
 			t.Fatalf("before replacement: %v, %v, %v", old, found, err)
 		}
@@ -438,7 +440,7 @@ func TestLookupConcurrentStopAndReplacement(t *testing.T) {
 		proceed <- struct{}{}
 		must(t, recv(t, done))
 		must(t, p.WaitReady(deadline(t)))
-		next, found, err := gordis.Lookup(s, valueKey)
+		next, found, err := s.Lookup(valueKey)
 		if err != nil || !found || next == nil || next == old || *next != int(generation+1) || *old != int(generation) {
 			t.Fatalf("after replacement: old=%v next=%v found=%v err=%v", old, next, found, err)
 		}
@@ -464,7 +466,7 @@ func TestLookupDetachedScopeDoesNotUseFixedBindings(t *testing.T) {
 		t.Helper()
 		assertLookupError(t, s, valueKey, gordis.ErrLookupUnsupported)
 		assertLookupError(t, s, gordis.NewKey[*int]("missing"), gordis.ErrLookupUnsupported)
-		bound, err := gordis.Get(s, valueKey)
+		bound, err := s.Get(valueKey)
 		if err != nil || bound != &value {
 			t.Fatalf("fixed Get = %v, %v", bound, err)
 		}
@@ -478,4 +480,167 @@ func TestLookupDetachedScopeDoesNotUseFixedBindings(t *testing.T) {
 	check()
 	run.Freeze()
 	assertLookupError(t, s, valueKey, gordis.ErrClosed)
+}
+
+type activateFunc func(context.Context, *gordis.Scope) error
+
+func (f activateFunc) Activate(ctx context.Context, scope *gordis.Scope) error {
+	return f(ctx, scope)
+}
+
+// The external test package can only use public Scope methods. Lifecycle
+// transitions remain on the Host-owned controller.
+func TestCrossPackageScopeAndFixedBindings(t *testing.T) {
+	key := gordis.NewKey[*int]("value")
+	value := 42
+	bindings := map[string]any{"value": &value}
+	requires := []gordis.ServiceSpec{key.Spec()}
+	for _, empty := range []*gordis.Scope{nil, {}} {
+		if bound, err := empty.Get(key); bound != nil || !errors.Is(err, gordis.ErrClosed) {
+			t.Fatalf("empty Scope Get: %v %v", bound, err)
+		}
+		if err := empty.Provide(key, &value); !errors.Is(err, gordis.ErrClosed) {
+			t.Fatalf("empty Scope Provide: %v", err)
+		}
+		if empty.HasProvided(key.Spec()) {
+			t.Fatal("empty Scope reports a publication")
+		}
+	}
+	run := lifecycle.New("external-id", 17, requires, requires, bindings, nil)
+	scope := &gordis.Scope{Scope: run.Scope()}
+	delete(bindings, "value")
+	requires[0] = gordis.NewKey[string]("mutated").Spec()
+	var events []string
+	plugin := activateFunc(func(_ context.Context, s *gordis.Scope) error {
+		if s.ID() != "external-id" || s.Generation() != 17 {
+			t.Fatal("identity changed")
+		}
+		bound, err := s.Get(key)
+		if err != nil || bound != &value {
+			t.Fatalf("binding: %v %v", bound, err)
+		}
+		if _, err := s.Get(gordis.NewKey[int]("value")); err == nil {
+			t.Fatal("wrong Go type accepted")
+		}
+		if err := s.Provide(key, (*int)(nil)); err == nil {
+			t.Fatal("typed nil accepted")
+		}
+		if err := s.Provide(gordis.NewKey[int]("value"), 1); err == nil {
+			t.Fatal("wrong provided type accepted")
+		}
+		if err := s.OnStop("entrance", func(context.Context) error {
+			if s.Context().Err() != nil {
+				t.Error("cancellation overtook OnStop")
+			}
+			events = append(events, "entrance")
+			return nil
+		}); err != nil {
+			return err
+		}
+		if err := s.Defer("first", func(context.Context) error { events = append(events, "first"); return nil }); err != nil {
+			return err
+		}
+		if err := s.Defer("last", func(context.Context) error {
+			if *bound != 42 {
+				t.Error("captured binding lost during cleanup")
+			}
+			events = append(events, "last")
+			return nil
+		}); err != nil {
+			return err
+		}
+		if s.HasProvided(key.Spec()) {
+			t.Fatal("declaration alone reports a publication")
+		}
+		if err := s.Provide(key, bound); err != nil {
+			return err
+		}
+		if s.HasProvided(key.Spec()) {
+			t.Fatal("staged service reports a publication")
+		}
+		return nil
+	})
+	if err := plugin.Activate(context.Background(), scope); err != nil {
+		t.Fatal(err)
+	}
+	if err, _ := run.Commit(context.Background(), nil, nil, func(values map[string]any) {
+		if values["value"] != &value {
+			t.Error("wrong published object")
+		}
+		delete(values, "value")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !scope.HasProvided(key.Spec()) {
+		t.Fatal("committed service is missing from own publication")
+	}
+	if scope.HasProvided(gordis.NewKey[int]("value").Spec()) ||
+		scope.HasProvided(gordis.NewKey[*int]("other").Spec()) {
+		t.Fatal("wrong service name or type reports a publication")
+	}
+	if err := scope.Provide(key, &value); err == nil {
+		t.Fatal("published scope accepted service")
+	}
+	release, err := run.Scope().Acquire()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Freeze()
+	if !scope.HasProvided(key.Spec()) {
+		t.Fatal("freeze erased own committed publication")
+	}
+	if _, err := scope.Get(key); !errors.Is(err, gordis.ErrClosed) {
+		t.Fatal(err)
+	}
+	if _, err := run.Scope().Acquire(); !errors.Is(err, gordis.ErrClosed) {
+		t.Fatal(err)
+	}
+	run.Quiesce()
+	done := make(chan error, 1)
+	go func() { done <- run.Dispose() }()
+	select {
+	case <-run.Scope().Context().Done():
+	case <-time.After(3 * time.Second):
+		t.Fatal("not draining")
+	}
+	select {
+	case <-done:
+		t.Fatal("cleanup overtook lease")
+	default:
+	}
+	release()
+	release()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("cleanup did not finish")
+	}
+	if !reflect.DeepEqual(events, []string{"entrance", "last", "first"}) {
+		t.Fatal(events)
+	}
+	if run.Retains() {
+		t.Fatal("clean generation retained")
+	}
+	snapshot := run.Snapshot()
+	if !snapshot.CleanupComplete || snapshot.Leases != 0 || snapshot.CleanupPhase != "complete" {
+		t.Fatal(snapshot)
+	}
+}
+
+func TestFacadeDoesNotExposeLifecycleControls(t *testing.T) {
+	typ := reflect.TypeOf((*gordis.Scope)(nil))
+	var methods []string
+	for i := 0; i < typ.NumMethod(); i++ {
+		methods = append(methods, typ.Method(i).Name)
+	}
+	want := []string{
+		"Acquire", "AcquireReady", "AfterReady", "Context", "Defer", "Env",
+		"Generation", "Go", "HasProvided", "ID", "OnStop", "View",
+	}
+	if !reflect.DeepEqual(methods, want) {
+		t.Fatalf("Scope methods: %v", methods)
+	}
 }

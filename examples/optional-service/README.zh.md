@@ -24,7 +24,7 @@ reader generation 1: database:item
 ## 实现原理
 
 reader 在 `Requires` 中声明 `databaseKey`，激活时通过 `Get` 取得数据库。
-`Activate` 还注入 `lookupCache` 函数，每次请求通过它执行 `Lookup(scope, cacheKey)`。
+`Activate` 还注入 `lookupCache` 函数，每次请求通过它执行 `scope.Lookup(cacheKey)`。
 
 `readerCh` 将初始化完成的 reader 交给主程序。缓冲让 `Activate` 可以在主程序等待
 `MountReady` 时发送对象；`MountReady` 保证请求开始前 reader 已就绪。generation 数字

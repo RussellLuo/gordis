@@ -41,7 +41,7 @@ func (p *storePlugin) Spec() gordis.PluginSpec {
 }
 
 func (p *storePlugin) Activate(_ context.Context, scope *gordis.Scope) error {
-	return gordis.Provide[ValueStore](scope, p.key, store(p.id))
+	return scope.Provide[ValueStore](p.key, store(p.id))
 }
 
 type readerPlugin struct {
@@ -60,14 +60,14 @@ func (p *readerPlugin) Spec() gordis.PluginSpec {
 }
 
 func (p *readerPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
-	database, err := gordis.Get(scope, databaseKey)
+	database, err := scope.Get(databaseKey)
 	if err != nil {
 		return err
 	}
 	p.generation, p.database = scope.Generation(), database
 	// Query the cache on each request using this Scope.
 	p.lookupCache = func() (ValueStore, bool, error) {
-		return gordis.Lookup(scope, cacheKey)
+		return scope.Lookup(cacheKey)
 	}
 	p.readerCh <- p
 	return nil

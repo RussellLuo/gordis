@@ -17,8 +17,11 @@ type Store interface {
 var StoreKey = gordis.NewKey[Store]("example.store/1")
 ```
 
-Use `StoreKey.Spec()` in `PluginSpec.Requires` and `Provides`. `Provide` submits
-the runtime value; `Get` reads the consumer generation's fixed binding.
+Use `StoreKey.Spec()` in `PluginSpec.Requires` and `Provides`. `scope.Provide`
+submits the runtime value; `scope.Get` reads the consumer generation's fixed
+binding. `scope.HasProvided(StoreKey.Spec())` reports whether this generation
+declared and successfully published that service, not whether another provider
+is visible. It returns false for staged values before publication commits.
 
 ## 2. Implement Plugin
 
@@ -47,7 +50,7 @@ func (p *Writer) Validate() error {
 }
 
 func (p *Writer) Activate(ctx context.Context, scope *gordis.Scope) error {
-    store, err := gordis.Get(scope, StoreKey)
+    store, err := scope.Get(StoreKey)
     if err != nil {
         return err
     }
@@ -88,14 +91,17 @@ if err := scope.Defer("store", func(context.Context) error {
     _ = store.Close()
     return err
 }
-return gordis.Provide[Store](scope, StoreKey, store)
+return scope.Provide[Store](StoreKey, store)
 ```
 
 These APIs cover dependencies, work admission, and shutdown cleanup:
 
-- `gordis.Get(scope, key)` is a package-level generic function that obtains this
-  generation's fixed dependency during `Activate`; it is not a Scope method.
-- `gordis.Lookup(scope, key)` probes an optional service in this generation's
+- `scope.Provide(key, value)` stages a declared service for publication after
+  `Activate` succeeds. `PluginSpec.Provides` declares the contract;
+  `scope.HasProvided(key.Spec())` checks this generation's committed publication.
+- `scope.Get(key)` is a generic Scope method that obtains this generation's
+  fixed dependency during `Activate`.
+- `scope.Lookup(key)` probes an optional service in this generation's
   View without declaring `Requires`, creating a dependency, or acquiring a lease.
 - `scope.Go(name, fn)` creates and owns a long-running task; a non-cancellation
   error fails the generation. Use `scope.AfterReady(name, fn)` when the task must
@@ -139,13 +145,13 @@ func (*readerPlugin) Spec() gordis.PluginSpec {
 }
 
 func (p *readerPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
-    database, err := gordis.Get(scope, DatabaseKey)
+    database, err := scope.Get(DatabaseKey)
     if err != nil {
         return err
     }
     p.database = database
     p.lookupCache = func() (ValueStore, bool, error) {
-        return gordis.Lookup(scope, CacheKey)
+        return scope.Lookup(CacheKey)
     }
     return nil
 }

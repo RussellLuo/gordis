@@ -34,7 +34,7 @@ func (*greeterPlugin) Spec() gordis.PluginSpec {
 }
 
 func (*greeterPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
-	return gordis.Provide[Greeter](scope, greeterKey, new(greeterService))
+	return scope.Provide[Greeter](greeterKey, new(greeterService))
 }
 
 type greetingPlugin struct {
@@ -57,7 +57,7 @@ func (p *greetingPlugin) Validate() error {
 }
 
 func (p *greetingPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
-	greeter, err := gordis.Get(scope, greeterKey)
+	greeter, err := scope.Get(greeterKey)
 	if err != nil {
 		return err
 	}

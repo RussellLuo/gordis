@@ -22,8 +22,8 @@ bob: Hello, Bob
 
 ## 实现原理
 
-`greeterKey` 定义共享契约。provider 在 `Provides` 中声明它，并通过 `gordis.Provide`
-发布值；每个 consumer 在 `Requires` 中声明它，再通过 `gordis.Get` 读取其固定绑定。
+`greeterKey` 定义共享契约。provider 在 `Provides` 中声明它，并通过 `scope.Provide`
+发布值；每个 consumer 在 `Requires` 中声明它，再通过 `scope.Get` 读取其固定绑定。
 
 `NewHost` 只注册这两种插件类型。程序随后通过 root Env 使用 `MountReady`
 直接挂载 provider、Alice 和 Bob。Host 会将每个实例的 `Config` 解码到新创建的插件对象，

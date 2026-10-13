@@ -29,7 +29,7 @@ func (*consumerPlugin) Spec() gordis.PluginSpec {
 }
 
 func (*consumerPlugin) Activate(ctx context.Context, scope *gordis.Scope) error {
-	service, err := gordis.Get(scope, greeter.Key)
+	service, err := scope.Get(greeter.Key)
 	if err != nil {
 		return err
 	}

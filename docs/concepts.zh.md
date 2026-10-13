@@ -82,7 +82,7 @@ provider，且两端契约名称与 Go 类型完全一致。
 | 访问方式 | 声明要求 | 解析与生命周期 |
 | --- | --- | --- |
 | `Requires + Get` | consumer 在 `Requires` 中声明准确 Key | 一代内固定 binding；服务缺失时 Pending；provider 变化触发 consumer 停止/换代；引用有效到 consumer 清理结束 |
-| `Lookup(scope, key)` | consumer 无需声明 | 查询当前 View 标签下 Ready、未冻结的 provider；缺失返回零值、`false`、`nil`；不建立依赖边、不取得租约、不触发调用方重启 |
+| `scope.Lookup(key)` | consumer 无需声明 | 查询当前 View 标签下 Ready、未冻结的 provider；缺失返回零值、`false`、`nil`；不建立依赖边、不取得租约、不触发调用方重启 |
 
 `Lookup` 校验服务名、准确 Go 契约类型和当前 provider generation，不等待，也不跨标签寻找
 服务。调用方必须是 Host 中当前有效、未冻结的 generation；`Activate` 中可查询其他 Ready
@@ -147,15 +147,17 @@ Pending；启动工具可结合 provider Failure 及 Snapshot 的 `BlockedBy`/`B
 
 | 作用 | API | 语义 |
 | --- | --- | --- |
-| 读取依赖 | `gordis.Get(scope, key)` | 读取本代启动时固定的 Service binding |
-| 探测可选服务 | `gordis.Lookup(scope, key)` | 在固定 View 中查询当前 Ready 服务，不建立依赖或租约 |
+| 提供服务 | `scope.Provide(key, value)` | 暂存已声明的值，激活成功后发布 |
+| 检查本代发布 | `scope.HasProvided(key.Spec())` | 检查本代已声明并提交的服务，不查询 View 中的可用性 |
+| 读取依赖 | `scope.Get(key)` | 读取本代启动时固定的 Service binding |
+| 探测可选服务 | `scope.Lookup(key)` | 在固定 View 中查询当前 Ready 服务，不建立依赖或租约 |
 | 管理长期任务 | `scope.Go` / `scope.AfterReady` | 启动由 Scope 监督的任务；后者等待本代 Ready 后再启动 |
 | 保护已准入工作 | `scope.Acquire` / `scope.AcquireReady` | 持有手动释放的请求租约；后者还会拒绝 Ready 前的调用 |
 | 撤回入口 | `scope.OnStop` | 在取消任务前关闭 listener、route 或 subscription 等入口 |
 | 最终释放 | `scope.Defer` | 在任务和租约退出后逆序释放资源 |
 
-`Get` 和 `Lookup` 都是接收 Scope 参数的包级泛型函数，不是 Scope 方法；Scope 为 Get 限定
-固定 binding 和有效生命周期，为 Lookup 提供 View 和当前 generation 校验。`Go` 创建并监督
+`Provide`、`Get` 和 `Lookup` 都是 Scope 的泛型方法；Scope 为 Get 限定固定 binding 和
+有效生命周期，为 Lookup 提供 View 和当前 generation 校验。`Go` 创建并监督
 goroutine，`Acquire` 不创建 goroutine，只让调用方正在执行的工作
 进入同一个停止排空屏障。长期任务使用 Scope 的运行 context，不使用启动 context；服务引用、
 Scope 和后台 goroutine 都不应逃逸到跨代全局状态。精确停止顺序见[生命周期](lifecycle.zh.md)。

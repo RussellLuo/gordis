@@ -55,8 +55,8 @@ defer release()
 或取消 goroutine；调用方自己执行工作，并负责调用幂等的 `release`。如果遗漏 `release`，后台
 清理会持续等待该租约。必须在本代 Ready 后才接受的公开入口可以改用 `AcquireReady`。
 
-没有租约保护的裸服务引用不受停止流程保护。`gordis.Get` 是接收 Scope 的包级函数；Scope
-冻结后再次调用会返回 `ErrClosed`。清理回调应使用启动时已经取得的固定依赖，不应重新调用
+没有租约保护的裸服务引用不受停止流程保护。Scope 冻结后再次调用 `scope.Get` 会返回
+`ErrClosed`。清理回调应使用启动时已经取得的固定依赖，不应重新调用
 `Get`。
 
 ## 超时与残留

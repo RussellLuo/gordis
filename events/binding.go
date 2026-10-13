@@ -20,7 +20,7 @@ func (e Binding) bus() (Bus, error) {
 	if e.scope == nil {
 		return nil, gordis.ErrClosed
 	}
-	return gordis.Get(e.scope, BusKey)
+	return e.scope.Get(BusKey)
 }
 
 func (e Binding) subscribe(contract Contract, handler any, options ...OnOption) (func(), error) {

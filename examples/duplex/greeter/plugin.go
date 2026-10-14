@@ -37,7 +37,7 @@ func (*Plugin) Activate(_ context.Context, scope *gordis.Scope) error {
 	if err != nil {
 		return err
 	}
-	return scope.Provide(GreeterKey, Greeter(service{directory: directory}))
+	return scope.Provide[Greeter](GreeterKey, service{directory: directory})
 }
 
 type service struct {

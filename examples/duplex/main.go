@@ -26,7 +26,7 @@ func (*directoryPlugin) Spec() gordis.PluginSpec {
 }
 
 func (*directoryPlugin) Activate(_ context.Context, scope *gordis.Scope) error {
-	return scope.Provide(greeter.UserDirectoryKey, greeter.UserDirectory(directoryService{}))
+	return scope.Provide[greeter.UserDirectory](greeter.UserDirectoryKey, directoryService{})
 }
 
 type directoryService struct{}

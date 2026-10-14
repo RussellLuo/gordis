@@ -140,7 +140,7 @@ func (p *fixturePlugin) Activate(ctx context.Context, s *gordis.Scope) error {
 	if p.Mode == "missing" {
 		return nil
 	}
-	return s.Provide(sampleKey, sampleService(sampleFunc(func(ctx context.Context, arg string) (string, error) {
+	return s.Provide[sampleService](sampleKey, sampleFunc(func(ctx context.Context, arg string) (string, error) {
 		if err := j.Record(ctx, "sample:"+arg); err != nil {
 			return "", err
 		}
@@ -148,7 +148,7 @@ func (p *fixturePlugin) Activate(ctx context.Context, s *gordis.Scope) error {
 			failed <- struct{}{}
 		}
 		return fmt.Sprintf("%s/%d:%s", s.ID(), s.Generation(), arg), nil
-	})))
+	}))
 }
 
 type testPlugin struct {
@@ -307,7 +307,7 @@ func TestPluginLifecycleConsistency(t *testing.T) {
 							}
 						}
 						providerStart := func(_ context.Context, s *gordis.Scope) error {
-							return s.Provide(journalKey, journal(log))
+							return s.Provide[journal](journalKey, log)
 						}
 						provider := newTestPlugin(
 							"journal", nil, []gordis.ServiceSpec{journalKey.Spec()}, providerStart,
@@ -758,7 +758,7 @@ func TestObserverPanicCannotOrphanStartedProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	providerStart := func(_ context.Context, s *gordis.Scope) error {
-		return s.Provide(journalKey, journal(&logbook{}))
+		return s.Provide[journal](journalKey, &logbook{})
 	}
 	provider := newTestPlugin(
 		"journal", nil, []gordis.ServiceSpec{journalKey.Spec()}, providerStart,

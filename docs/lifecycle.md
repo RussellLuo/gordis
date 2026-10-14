@@ -97,4 +97,4 @@ Important diagnostic fields:
 | `CleanupPhase` / `CleanupComplete` / `CleanupError` / `Residuals` | Cleanup progress, errors, and failed items |
 | `StopReason` | Propagated owner, dependency, or explicit-operation stop cause |
 
-Dynamic changes use the same freeze, drain, and residual rules; see [Dynamic Instance Management](dynamic.md). `processbridge` reuses the same Scope lifecycle and coordinates remote cleanup through `gordis.process/1`.
+Dynamic changes use the same freeze, drain, and residual rules; see [Dynamic Instance Management](dynamic.md). `processbridge` reuses the same Scope lifecycle and coordinates remote cleanup through `gordis/process/1`.

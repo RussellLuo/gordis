@@ -14,7 +14,7 @@ type Store interface {
     Put(context.Context, string, []byte) error
 }
 
-var StoreKey = gordis.NewKey[Store]("example.store/1")
+var StoreKey = gordis.NewKey[Store]("example/store")
 ```
 
 `StoreKey.Spec()` 用于 `PluginSpec.Requires` / `Provides`；`scope.Provide` 提交运行时值，
@@ -112,8 +112,8 @@ type ValueStore interface {
     Get(context.Context, string) ([]byte, error)
 }
 
-var DatabaseKey = gordis.NewKey[ValueStore]("example.database/1")
-var CacheKey = gordis.NewKey[ValueStore]("example.cache/1")
+var DatabaseKey = gordis.NewKey[ValueStore]("example/database")
+var CacheKey = gordis.NewKey[ValueStore]("example/cache")
 
 type readerPlugin struct {
     database    ValueStore
@@ -228,7 +228,7 @@ consumer 可以先挂载，并在匹配 provider 出现前自动保持 Pending�
 使用者在 `Requires` 中声明 `events.BusKey.Spec()`，再绑定当前 generation 的 Scope：
 
 ```go
-var Changed = events.NewTopic[string]("example.changed/1")
+var Changed = events.NewTopic[string]("example/changed")
 
 func (*observerPlugin) Spec() gordis.PluginSpec {
     return gordis.PluginSpec{

@@ -18,8 +18,8 @@ type Greeter interface {
 	Greet(context.Context, string) (string, error)
 }
 
-var UserDirectoryKey = gordis.NewKey[UserDirectory]("example.duplex.user-directory/1")
-var GreeterKey = gordis.NewKey[Greeter]("example.duplex.greeter/1")
+var UserDirectoryKey = gordis.NewKey[UserDirectory]("example/duplex/user-directory")
+var GreeterKey = gordis.NewKey[Greeter]("example/duplex/greeter")
 
 type Plugin struct{}
 

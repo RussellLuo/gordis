@@ -56,6 +56,6 @@ func Serve(ctx context.Context, in io.ReadCloser, out io.WriteCloser) error {
 
 var binding = processbridge.BindTopic(
 	notice.Topic,
-	processbridge.JSONEventCodec[notice.Notice]("example.process-events.notice.json/1"),
+	processbridge.JSONEventCodec[notice.Notice]("example/process-events/notice/json"),
 	processbridge.EventPublish,
 )

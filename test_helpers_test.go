@@ -9,7 +9,7 @@ import (
 	"github.com/RussellLuo/gordis"
 )
 
-var valueKey = gordis.NewKey[*int]("test.value")
+var valueKey = gordis.NewKey[*int]("test/value")
 
 type testPlugin struct {
 	ID                 string

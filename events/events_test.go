@@ -170,7 +170,7 @@ func TestReadyGateOncePriorityAndDrain(t *testing.T) {
 
 func TestRoutingSourceGlobalAndTopicPartitions(t *testing.T) {
 	topic := events.NewTopic[string]("orders")
-	sourceKey := gordis.NewKey[int]("order.writer")
+	sourceKey := gordis.NewKey[int]("order/writer")
 	counts := map[string]*atomic.Int32{
 		"a": {}, "b": {}, "global": {}, "other-topic": {},
 	}

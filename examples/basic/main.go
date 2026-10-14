@@ -17,7 +17,7 @@ import (
 
 type Greeter interface{ Greet(string) string }
 
-var greeterKey = gordis.NewKey[Greeter]("example.greeter")
+var greeterKey = gordis.NewKey[Greeter]("example/greeter")
 
 type greeterService struct{}
 

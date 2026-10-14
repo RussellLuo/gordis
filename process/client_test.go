@@ -92,7 +92,7 @@ func TestProcessChild(t *testing.T) {
 		identity.Version = "wrong"
 	}
 	if mode == "protocol-mismatch" {
-		identity.Protocol = "gordis.process/0"
+		identity.Protocol = "gordis/process/0"
 	}
 	err := Serve(context.Background(), os.Stdin, os.Stdout, identity, Limits{MaxPending: 64, Queue: 64}, Handler{
 		Initialize: func(ctx context.Context, host Caller, _ json.RawMessage) error {

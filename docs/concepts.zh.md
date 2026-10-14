@@ -55,7 +55,7 @@ type Store interface {
     Put(context.Context, string, []byte) error
 }
 
-var StoreKey = gordis.NewKey[Store]("example.store/1")
+var StoreKey = gordis.NewKey[Store]("example/store")
 ```
 
 `Key[T].Spec()` 暴露存放在 `PluginSpec.Requires` 和 `PluginSpec.Provides` 中的

@@ -9,7 +9,7 @@ import (
 	"github.com/RussellLuo/gordis"
 )
 
-const targetPrefix = "gordis.events.topic:"
+const targetPrefix = "gordis/events/topic:"
 
 type contractKind uint8
 

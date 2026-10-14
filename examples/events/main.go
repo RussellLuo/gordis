@@ -17,7 +17,7 @@ type orderCreated struct {
 	ID string
 }
 
-var orderCreatedTopic = events.NewTopic[orderCreated]("example.order-created/1")
+var orderCreatedTopic = events.NewTopic[orderCreated]("example/order-created")
 
 type orderObserverPlugin struct {
 	received chan<- orderCreated

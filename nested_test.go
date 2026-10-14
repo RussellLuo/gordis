@@ -16,7 +16,7 @@ type p3ServiceValue string
 
 func (v p3ServiceValue) Value() string { return string(v) }
 
-var p3Key = gordis.NewKey[p3Service]("p3.service")
+var p3Key = gordis.NewKey[p3Service]("p3/service")
 
 type p3Provider struct{}
 

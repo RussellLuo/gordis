@@ -4,7 +4,9 @@ English | [中文](process-protocol.zh.md)
 
 `process` supervises trusted local child processes and provides bidirectional JSON RPC over stdio. Both the Host and plugin may initiate calls. The application owns business methods, DTOs, and authorization; Go objects, Scopes, and service Keys never cross the process boundary.
 
-The current protocol identifier is `gordis.process/1`, and both peers must match it exactly. An incompatible change requires a new protocol identifier and rebuilt Host, plugin, and manifest artifacts.
+The current protocol identifier is `gordis/process/1`, and both peers must match it exactly. An incompatible change requires a new protocol identifier and rebuilt Host, plugin, and manifest artifacts.
+
+Protocol and capability namespaces use `/` separators. The former dotted identifiers are not accepted as aliases; rebuild Host and plugin binaries together and regenerate package manifests when adopting these names.
 
 ## Usage
 
@@ -68,7 +70,7 @@ Concrete executable coverage includes:
 Startup proceeds as follows:
 
 ```text
-hello(gordis.process/1)
+hello(gordis/process/1)
   → validate protocol / package / version / contracts
   → initialize(instance, generation, config)
   → ready
@@ -96,11 +98,11 @@ Event wires are registered only at a selected Process boundary. Local
 Topics/Hooks and business Plugins do not carry codecs:
 
 ```go
-var Notice = events.NewTopic[NoticePayload]("app.notice/1")
+var Notice = events.NewTopic[NoticePayload]("app/notice")
 
 var NoticeWire = processbridge.BindTopic(
     Notice,
-    processbridge.JSONEventCodec[NoticePayload]("app.notice.json/1"),
+    processbridge.JSONEventCodec[NoticePayload]("app/notice/json"),
     processbridge.EventPublish|processbridge.EventSubscribe,
 )
 ```
@@ -134,7 +136,7 @@ no instance-control wire, so remote `Scope.Env().Mount` returns
 
 ## Lifecycle and cleanup
 
-With the `gordis.lifecycle/1` contract, shutdown proceeds as:
+With the `gordis/lifecycle/1` contract, shutdown proceeds as:
 
 ```text
 quiesce → dispose → shutdown

@@ -18,7 +18,7 @@ type backendValue string
 
 func (b backendValue) Name() string { return string(b) }
 
-var metricsBackendKey = gordis.NewKey[metricsBackend]("example.metrics-backend/1")
+var metricsBackendKey = gordis.NewKey[metricsBackend]("example/metrics-backend")
 
 type backendPlugin struct{}
 

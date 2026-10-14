@@ -8,7 +8,7 @@ import (
 	"github.com/RussellLuo/gordis"
 )
 
-const PluginID = "gordis.events"
+const PluginID = "gordis/events"
 
 // Bus is the non-generic service used by Binding's typed methods. Its methods
 // are intentionally private so lifecycle and routing invariants stay inside
@@ -19,7 +19,7 @@ type Bus interface {
 }
 
 // BusKey is the ordinary Gordis Service key required by event users.
-var BusKey = gordis.NewKey[Bus]("gordis.events.Bus")
+var BusKey = gordis.NewKey[Bus]("gordis/events/Bus")
 
 // Plugin provides one local Bus. MaxParallel limits the number of notification
 // handlers running concurrently across parallel publications on this Bus.

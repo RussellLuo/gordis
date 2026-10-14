@@ -25,10 +25,10 @@ func bridgeTestContext(t *testing.T) context.Context {
 }
 
 var (
-	bridgeNotice = events.NewTopic[string]("test.bridge.notice/1")
-	bridgeChoose = events.NewHook[string, string]("test.bridge.choose/1")
-	bridgeFlow   = events.NewHook[string, string]("test.bridge.flow/1")
-	stringCodec  = JSONEventCodec[string]("utf8-json-string/1")
+	bridgeNotice = events.NewTopic[string]("test/bridge/notice")
+	bridgeChoose = events.NewHook[string, string]("test/bridge/choose")
+	bridgeFlow   = events.NewHook[string, string]("test/bridge/flow")
+	stringCodec  = JSONEventCodec[string]("utf8-json-string")
 	bridgeEvents = []EventBinding{
 		BindTopic(bridgeNotice, stringCodec, EventPublish|EventSubscribe),
 		BindHook(bridgeChoose, stringCodec, stringCodec, EventPublish|EventSubscribe),
@@ -42,7 +42,7 @@ type eventControl interface {
 	Flow(context.Context, string) (string, error)
 }
 
-var eventControlKey = gordis.NewKey[eventControl]("test.event-control/1")
+var eventControlKey = gordis.NewKey[eventControl]("test/event-control")
 
 type eventController struct{ binding events.Binding }
 
@@ -432,7 +432,7 @@ func TestProcessAfterReadyWaitsForHostReady(t *testing.T) {
 }
 
 func TestProcessEventUsesHostTopicAndSourceView(t *testing.T) {
-	sourceKey := gordis.NewKey[int]("test.event-source/1")
+	sourceKey := gordis.NewKey[int]("test/event-source")
 	var sourceScope *gordis.Scope
 	sourcePlugin := newTestPlugin(
 		"source-publisher",
@@ -706,7 +706,7 @@ func TestProcessEventWirePreflightAndEnvCapabilityRejection(t *testing.T) {
 
 	mismatchedEvents := append([]EventBinding(nil), bridgeEvents...)
 	mismatchedEvents[0] = BindTopic(
-		bridgeNotice, JSONEventCodec[string]("utf8-json-string/2"), EventPublish|EventSubscribe,
+		bridgeNotice, JSONEventCodec[string]("utf8-json-string-mismatch"), EventPublish|EventSubscribe,
 	)
 	mismatchFixture := newEventBridgeFixture(t, eventAdapter(nil, mismatchedEvents))
 	rawSubscriber, _ := json.Marshal(map[string]string{"role": "subscriber"})
@@ -717,7 +717,7 @@ func TestProcessEventWirePreflightAndEnvCapabilityRejection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := mismatch.WaitReady(bridgeTestContext(t)); err == nil || !strings.Contains(err.Error(), "missing contract gordis.event/1:") {
+	if err := mismatch.WaitReady(bridgeTestContext(t)); err == nil || !strings.Contains(err.Error(), "missing contract gordis/event/1:") {
 		t.Fatalf("wire mismatch reached activation: %v", err)
 	}
 	if got := mismatchFixture.log.snapshot(); len(got) != 0 {

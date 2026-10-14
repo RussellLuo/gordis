@@ -144,7 +144,7 @@ func TestLookupActivationPublicationAndFreeze(t *testing.T) {
 	staged, publish := make(chan *gordis.Scope, 1), make(chan struct{})
 	stopping, finishStop := make(chan struct{}), make(chan struct{})
 	var publishOnce, stopOnce sync.Once
-	databaseKey := gordis.NewKey[*int]("lookup.database")
+	databaseKey := gordis.NewKey[*int]("lookup/database")
 	databaseValue, cacheValue := 42, 7
 	database := definition("database", func(_ context.Context, s *gordis.Scope) error {
 		return s.Provide(databaseKey, &databaseValue)
@@ -237,7 +237,7 @@ func TestLookupPendingProviderBecomesVisibleAfterDependencyAppears(t *testing.T)
 func TestLookupViewIsolationUsesNameAndFixedLabel(t *testing.T) {
 	scopes := make(chan *gordis.Scope, 4)
 	provided := make(chan [2]*int, 2)
-	otherKey := gordis.NewKey[*int]("lookup.other")
+	otherKey := gordis.NewKey[*int]("lookup/other")
 	provider := definition("provider", func(_ context.Context, s *gordis.Scope) error {
 		cache, other := new(int), new(int)
 		if err := s.Provide(valueKey, cache); err != nil {
@@ -321,7 +321,7 @@ func TestLookupInvalidKeysExactTypesAndCallerLifetime(t *testing.T) {
 
 func TestLookupDoesNotDrainOptionalCall(t *testing.T) {
 	scopes := make(chan *gordis.Scope, 1)
-	key := gordis.NewKey[func() error]("lookup.blocking-call")
+	key := gordis.NewKey[func() error]("lookup/blocking-call")
 	entered, resume, disposed := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var resumeOnce sync.Once
 	var closed atomic.Bool

@@ -17,8 +17,8 @@ type ValueStore interface {
 	Get(context.Context, string) ([]byte, error)
 }
 
-var databaseKey = gordis.NewKey[ValueStore]("example.database/1")
-var cacheKey = gordis.NewKey[ValueStore]("example.cache/1")
+var databaseKey = gordis.NewKey[ValueStore]("example/database")
+var cacheKey = gordis.NewKey[ValueStore]("example/cache")
 
 // Both providers use an immutable in-memory value to identify the chosen path.
 type store string

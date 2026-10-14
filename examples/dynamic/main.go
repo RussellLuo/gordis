@@ -19,7 +19,7 @@ type source struct{ generation uint64 }
 
 func (s source) Read() uint64 { return s.generation }
 
-var sourceKey = gordis.NewKey[Source]("example.source/1")
+var sourceKey = gordis.NewKey[Source]("example/source")
 
 type sourcePlugin struct{}
 

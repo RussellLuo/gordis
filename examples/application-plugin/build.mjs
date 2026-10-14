@@ -40,7 +40,7 @@ if (!onlyHost) {
         const backendSHA256 = digest(await readFile(join(stage, 'backend/plugin')));
         await writeFile(join(stage, 'backend/manifest.json'), JSON.stringify({
           id: metadata.id, version, entry: 'plugin', sha256: backendSHA256,
-          protocol: 'gordis.process/1', contracts: ['gordis.lifecycle/1', 'gordis.application.endpoints/1'],
+          protocol: 'gordis/process/1', contracts: ['gordis/lifecycle/1', 'gordis/application/endpoints'],
         }, null, 2) + '\n');
         const ui = { ...await buildPlugin(source, join(stage, 'ui')), version };
         const files = {};

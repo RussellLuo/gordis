@@ -24,8 +24,8 @@ type sampleService interface {
 	Sample(context.Context, string) (string, error)
 }
 
-var journalKey = gordis.NewKey[journal]("test.journal/1")
-var sampleKey = gordis.NewKey[sampleService]("test.sample/1")
+var journalKey = gordis.NewKey[journal]("test/journal")
+var sampleKey = gordis.NewKey[sampleService]("test/sample")
 
 type sampleFunc func(context.Context, string) (string, error)
 
@@ -698,7 +698,7 @@ func stopHost(t *testing.T, h *gordis.Host) error {
 }
 
 func TestBindingValidationAndRoutingKeepCapabilitiesSeparate(t *testing.T) {
-	second := gordis.NewKey[journal]("test.journal.other/1")
+	second := gordis.NewKey[journal]("test/journal/other")
 	b := Bind(second, func(c process.Caller) journal {
 		return recordFunc(func(ctx context.Context, s string) error { return c.Call(ctx, "record", s, nil) })
 	}, func(j journal) process.CallHandler { return journalBinding.handler(j) })

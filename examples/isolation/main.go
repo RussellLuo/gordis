@@ -14,7 +14,7 @@ import (
 
 type store struct{ id string }
 
-var storeKey = gordis.NewKey[*store]("example.store")
+var storeKey = gordis.NewKey[*store]("example/store")
 
 type storePlugin struct{}
 

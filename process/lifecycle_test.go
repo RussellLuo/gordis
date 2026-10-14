@@ -141,7 +141,8 @@ func TestMismatchedProtocolHelloRejectedBeforeInitialize(t *testing.T) {
 	p := newPeer(hostIn, out, Limits{}, message{Session: "test", Instance: "assigned", Generation: 2})
 	p.accept = func(message) (invocation, error) { return invocation{}, errors.New("unexpected request") }
 	p.start()
-	for _, version := range []string{"gordis.process/0", "other.process/1"} {
+	// The previous dotted identifier must not be accepted as a compatibility alias.
+	for _, version := range []string{"gordis/process/0", "other/process/1", "gordis.process/1"} {
 		var rpc *RPCError
 		err := p.call(context.Background(), "hello", map[string]string{"protocol": version}, nil, true)
 		if !errors.As(err, &rpc) || rpc.Code != "protocol" {

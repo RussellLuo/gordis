@@ -14,7 +14,7 @@ type Store interface {
     Put(context.Context, string, []byte) error
 }
 
-var StoreKey = gordis.NewKey[Store]("example.store/1")
+var StoreKey = gordis.NewKey[Store]("example/store")
 ```
 
 Use `StoreKey.Spec()` in `PluginSpec.Requires` and `Provides`. `scope.Provide`
@@ -128,8 +128,8 @@ type ValueStore interface {
     Get(context.Context, string) ([]byte, error)
 }
 
-var DatabaseKey = gordis.NewKey[ValueStore]("example.database/1")
-var CacheKey = gordis.NewKey[ValueStore]("example.cache/1")
+var DatabaseKey = gordis.NewKey[ValueStore]("example/database")
+var CacheKey = gordis.NewKey[ValueStore]("example/cache")
 
 type readerPlugin struct {
     database    ValueStore
@@ -258,7 +258,7 @@ Register `&events.Plugin{}` in the Host catalog and mount one
 `Requires` and bind the current generation's Scope:
 
 ```go
-var Changed = events.NewTopic[string]("example.changed/1")
+var Changed = events.NewTopic[string]("example/changed")
 
 func (*observerPlugin) Spec() gordis.PluginSpec {
     return gordis.PluginSpec{

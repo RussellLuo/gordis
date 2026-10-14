@@ -226,7 +226,7 @@ func BindHook[I, O any](
 func eventFingerprint(kind eventContractKind, id, input, output string, directions EventDirection) string {
 	data := fmt.Sprintf("%d:%d:%s:%d:%s:%d:%s:%d", kind, len(id), id, len(input), input, len(output), output, directions)
 	sum := sha256.Sum256([]byte(data))
-	return "gordis.event/1:" + hex.EncodeToString(sum[:])
+	return "gordis/event/1:" + hex.EncodeToString(sum[:])
 }
 
 func (b EventBinding) validate() error {
@@ -272,7 +272,7 @@ func eventContractNames(bindings []EventBinding) []string {
 	}
 	sort.Strings(wires)
 	sum := sha256.Sum256([]byte(strings.Join(wires, "\x00")))
-	names = append(names, "gordis.events.registry/1:"+hex.EncodeToString(sum[:]))
+	names = append(names, "gordis/events/registry/1:"+hex.EncodeToString(sum[:]))
 	return names
 }
 

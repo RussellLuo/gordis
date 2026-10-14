@@ -23,7 +23,7 @@ import (
 const (
 	BackendPluginID  = "application-backend"
 	GatewayPluginID  = "application-gateway"
-	EndpointContract = "gordis.application.endpoints/1"
+	EndpointContract = "gordis/application/endpoints"
 	HTTPProtocol     = "http"
 	TokenHeader      = "X-Gordis-Process-Token"
 )

@@ -16,7 +16,7 @@ type Notice struct {
 	Message string `json:"message"`
 }
 
-var Topic = events.NewTopic[Notice]("example.process-events.notice/1")
+var Topic = events.NewTopic[Notice]("example/process-events/notice")
 
 type Plugin struct{}
 

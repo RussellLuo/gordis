@@ -15,7 +15,7 @@ type Greeter interface {
 	Greet(context.Context, string) (string, error)
 }
 
-var Key = gordis.NewKey[Greeter]("example.process.greeter/1")
+var Key = gordis.NewKey[Greeter]("example/process/greeter")
 
 type Plugin struct {
 	Prefix string `json:"prefix"`

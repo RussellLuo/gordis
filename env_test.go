@@ -20,7 +20,7 @@ type p2ValueString string
 
 func (v p2ValueString) Value() string { return string(v) }
 
-var p2ValueKey = gordis.NewKey[p2Value]("p2.value")
+var p2ValueKey = gordis.NewKey[p2Value]("p2/value")
 
 type p2Provider struct {
 	ValueText string `json:"value"`
@@ -398,8 +398,8 @@ func TestMountCommitBoundaryAndPendingTimeout(t *testing.T) {
 }
 
 func TestServiceAddressIncludesKeyAndLabel(t *testing.T) {
-	keyA := gordis.NewKey[*int]("address.a")
-	keyB := gordis.NewKey[*int]("address.b")
+	keyA := gordis.NewKey[*int]("address/a")
+	keyB := gordis.NewKey[*int]("address/b")
 	valueA, valueB := 1, 2
 
 	providerA := definition("provider-a", func(_ context.Context, scope *gordis.Scope) error {

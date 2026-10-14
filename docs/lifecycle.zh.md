@@ -100,4 +100,4 @@ Unmount 或 Shutdown 的 context 只限制调用方等待时间，不取消后�
 | `CleanupPhase` / `CleanupComplete` / `CleanupError` / `Residuals` | 清理进度、错误与失败项 |
 | `StopReason` | owner、依赖或显式 operation 传播的停止原因 |
 
-动态变更遵守同一套冻结、排空和残留规则，详见[动态管理](dynamic.zh.md)。`processbridge` 复用同一 Scope 生命周期，并通过 `gordis.process/1` 协调远端清理。
+动态变更遵守同一套冻结、排空和残留规则，详见[动态管理](dynamic.zh.md)。`processbridge` 复用同一 Scope 生命周期，并通过 `gordis/process/1` 协调远端清理。

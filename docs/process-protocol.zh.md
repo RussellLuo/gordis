@@ -4,7 +4,9 @@
 
 `process` 监督受信任的本机子进程，并通过 stdio 提供双向 JSON RPC。Host 和插件都能发起调用；业务方法、DTO 和授权由应用定义，Go 对象、Scope 和服务 Key 不跨进程传递。
 
-当前协议标识为 `gordis.process/1`，双方必须精确匹配。发生不兼容变化时，应升级协议并重新构建 Host、插件和 manifest。
+当前协议标识为 `gordis/process/1`，双方必须精确匹配。发生不兼容变化时，应升级协议并重新构建 Host、插件和 manifest。
+
+协议和能力标识的命名空间统一使用 `/` 分隔。原来的点号标识不作为兼容别名接受；采用新名称时，需要一起重新构建 Host 和插件，并重新生成包 manifest。
 
 ## 使用方式
 
@@ -66,7 +68,7 @@ Host Client.Call
 启动顺序：
 
 ```text
-hello(gordis.process/1)
+hello(gordis/process/1)
   → 校验 protocol / package / version / contracts
   → initialize(instance, generation, config)
   → ready
@@ -93,11 +95,11 @@ Adapter 的 ID 是逻辑插件类型 ID，不应编码 `-process` 等执行方�
 Event wire 只在选用 Process 的装配边界登记；本地 Topic/Hook 与业务 Plugin 不携带 codec：
 
 ```go
-var Notice = events.NewTopic[NoticePayload]("app.notice/1")
+var Notice = events.NewTopic[NoticePayload]("app/notice")
 
 var NoticeWire = processbridge.BindTopic(
     Notice,
-    processbridge.JSONEventCodec[NoticePayload]("app.notice.json/1"),
+    processbridge.JSONEventCodec[NoticePayload]("app/notice/json"),
     processbridge.EventPublish|processbridge.EventSubscribe,
 )
 ```
@@ -123,7 +125,7 @@ waterfall 的 `next` token 只能在当前 middleware 返回前调用一次；�
 
 ## 生命周期与清理
 
-声明 `gordis.lifecycle/1` 后，关闭过程为：
+声明 `gordis/lifecycle/1` 后，关闭过程为：
 
 ```text
 quiesce → dispose → shutdown

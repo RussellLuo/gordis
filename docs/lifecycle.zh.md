@@ -100,4 +100,16 @@ Unmount 或 Shutdown 的 context 只限制调用方等待时间，不取消后�
 | `CleanupPhase` / `CleanupComplete` / `CleanupError` / `Residuals` | 清理进度、错误与失败项 |
 | `StopReason` | owner、依赖或显式 operation 传播的停止原因 |
 
-动态变更遵守同一套冻结、排空和残留规则，详见[动态管理](dynamic.zh.md)。`processbridge` 复用同一 Scope 生命周期，并通过 `gordis/process/1` 协调远端清理。
+动态变更遵守同一套冻结、排空和残留规则，详见[动态管理](dynamic.zh.md)。
+
+## 进程执行
+
+使用 RPC 时，Host Scope 持有进程 Session；子进程 Unit 运行独立的 Host，其普通实例沿用
+上述生命周期。外部 Host 的实例/generation 与子进程内部的实例/generation 各自独立。
+Unit Ready 后才开放导出。停止时先 quiesce 子进程、等待清理报告，再回收进程，并在实际
+handler 返回后完成 Host 回调服务的停止。进程已回收不能单独证明业务清理成功。
+详见 [RPC 架构与生命周期](../rpc/docs/architecture.zh.md)。
+
+旧 `processbridge` 则使用 Host 指定的 instance 和 generation 驱动一个 detached Scope，
+不创建子进程 Host。process-events 与 application-plugin 示例仍使用这套
+`gordis/process/1` 清理协议，详见[旧 stdio 进程协议](process-protocol.zh.md)。

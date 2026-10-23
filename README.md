@@ -94,8 +94,8 @@ generation for restart and cleanup, but only declared Service dependencies
 decide whether an instance can become ready.
 
 Control planes can use `Host.Changes()` to atomically commit cross-instance
-changes. The optional `events` and `processbridge` packages follow the same
-Service, Scope, and lifecycle model; the core does not read configuration files
+changes. The optional `events` package and the [RPC module](rpc/README.md) follow
+the same Service, Scope, and lifecycle model; the core does not read configuration files
 or maintain a second Loader graph.
 
 ## Examples
@@ -104,6 +104,9 @@ Start with [basic](examples/basic/README.md) for typed services, configuration,
 and instance mounting. See the [examples guide](examples/README.md) for
 events, isolation, ownership, readiness, dynamic changes, process plugins, and
 application integration.
+
+For ordinary Services in child processes, follow the
+[RPC examples](rpc/examples/README.md): `basic`, `duplex`, then `stream`.
 
 ## Documentation
 
@@ -115,17 +118,25 @@ application integration.
   propagation, and diagnostics.
 - [Dynamic Instance Management](docs/dynamic.md): single-instance operations,
   bulk changes, waiting, and recovery.
-- [Process Protocol](docs/process-protocol.md): advanced, read-as-needed
-  reference for bidirectional RPC and remote cleanup.
+- [RPC Architecture and Lifecycle](rpc/docs/architecture.md): process startup,
+  service calls, callbacks, and cleanup.
+- [Legacy stdio Process Protocol](docs/process-protocol.md): the
+  `process`/`processbridge` implementation still used by process events and the
+  application-plugin example.
 
 ## Scope
 
 Gordis core manages the Go plugin graph, typed services, and lifecycle. HTTP,
 UI, agents, package distribution, and persistence are application concerns.
 
-The `process`/`processbridge` transport runs trusted local stdio children. It does not provide
-remote discovery, authentication, reconnection, in-place configuration
-mutation, overlapping old/new generations, or forced goroutine termination.
+Use the RPC module for ordinary Services in trusted local child processes.
+The older `process`/`processbridge` stdio transport remains for cross-process
+events and the application-plugin example. The two protocols are incompatible;
+migrating requires rebuilding both Host and plugin programs.
+
+Process execution does not provide a sandbox for untrusted code. Neither
+transport provides remote discovery, authentication, reconnection, or forced
+goroutine termination.
 
 ## Acknowledgements
 

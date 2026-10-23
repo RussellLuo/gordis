@@ -97,4 +97,20 @@ Important diagnostic fields:
 | `CleanupPhase` / `CleanupComplete` / `CleanupError` / `Residuals` | Cleanup progress, errors, and failed items |
 | `StopReason` | Propagated owner, dependency, or explicit-operation stop cause |
 
-Dynamic changes use the same freeze, drain, and residual rules; see [Dynamic Instance Management](dynamic.md). `processbridge` reuses the same Scope lifecycle and coordinates remote cleanup through `gordis/process/1`.
+Dynamic changes use the same freeze, drain, and residual rules; see
+[Dynamic Instance Management](dynamic.md).
+
+## Process execution
+
+With RPC, the Host Scope owns the process Session; the child Unit runs a
+separate Host whose ordinary instances follow the lifecycle above. The Host
+instance/generation and child instance/generations have distinct identities.
+Exports become available only after the Unit is Ready. Shutdown quiesces the
+child, waits for its cleanup report, reaps the process, and stops Host callbacks
+after actual handlers return. Process reaping alone does not prove successful
+business cleanup. See [RPC Architecture and Lifecycle](../rpc/docs/architecture.md).
+
+The older `processbridge` instead drives one detached child Scope using the
+Host-assigned instance and generation, without creating a child Host. Its
+`gordis/process/1` cleanup protocol remains in use by the process-events and
+application-plugin examples; see the [legacy stdio protocol](process-protocol.md).

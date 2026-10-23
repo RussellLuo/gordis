@@ -43,6 +43,7 @@ publisher, or observer. When `run` returns, `Host.Shutdown` stops and reaps the
 child process.
 
 See [events](../events/README.md) for Local publication,
-[process](../process/README.md) for a typed Service backed by a process, and the
+[RPC basic](../../rpc/examples/basic/README.md) for a typed Service backed by a
+process, and the
 [process protocol](../../docs/process-protocol.md#event-federation) for the full
 federation contract.

@@ -37,5 +37,5 @@ Host observer 不需要任何进程专用代码，而是通过普通的 `events.
 和 observer 均无需改变。`run` 返回时，`Host.Shutdown` 会停止并回收子进程。
 
 Local 发布见 [events](../events/README.zh.md)；由进程支撑的类型化 Service 见
-[process](../process/README.zh.md)；完整联邦契约见
+[RPC basic](../../rpc/examples/basic/README.zh.md)；完整联邦契约见
 [进程协议](../../docs/process-protocol.zh.md#event-federation)。

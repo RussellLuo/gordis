@@ -1,6 +1,12 @@
-# 进程协议 v1
+# 旧 stdio 进程协议 v1
 
 [English](process-protocol.md) | 中文
+
+本文描述旧 `process`/`processbridge` 实现，现有
+[process-events](../examples/process-events/README.zh.md) 与
+[application-plugin](../examples/application-plugin/README.zh.md) 仍在使用。
+普通 Service 插件使用 [RPC 模块](../rpc/README.zh.md)及其
+[示例](../rpc/examples/README.zh.md)。两套协议不兼容。
 
 `process` 监督受信任的本机子进程，并通过 stdio 提供双向 JSON RPC。Host 和插件都能发起调用；业务方法、DTO 和授权由应用定义，Go 对象、Scope 和服务 Key 不跨进程传递。
 
@@ -10,9 +16,10 @@
 
 ## 使用方式
 
-普通业务 Plugin 应优先使用后文的 `processbridge`，继续通过类型化 Service 和
-`Requires`/`Provides` 工作。直接使用 `process` 主要适合实现 Adapter、wire binding、协议集成，
-或者显式暴露不属于 Gordis Service 图的 Host capability。
+在这套 stdio 实现中，后文的 `processbridge` 通过类型化 Service 和 `Requires`/`Provides`
+连接普通 Plugin。直接使用 `process` 可实现 Adapter、wire binding、协议集成，或者显式
+暴露不属于 Gordis Service 图的 Host capability。下文示例与 Scope 规则仅适用于这套实现，
+不适用于 RPC Unit。
 
 Host 启动子进程，并显式提供插件可以调用的方法：
 

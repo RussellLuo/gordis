@@ -1,6 +1,12 @@
-# Process Protocol v1
+# Legacy stdio Process Protocol v1
 
 English | [中文](process-protocol.zh.md)
+
+This page describes the older `process`/`processbridge` implementation, still
+used by [process-events](../examples/process-events/README.md) and
+[application-plugin](../examples/application-plugin/README.md). For ordinary
+Service plugins, use the [RPC module](../rpc/README.md) and its
+[examples](../rpc/examples/README.md). The two protocols are incompatible.
 
 `process` supervises trusted local child processes and provides bidirectional JSON RPC over stdio. Both the Host and plugin may initiate calls. The application owns business methods, DTOs, and authorization; Go objects, Scopes, and service Keys never cross the process boundary.
 
@@ -10,10 +16,11 @@ Protocol and capability namespaces use `/` separators. The former dotted identif
 
 ## Usage
 
-Ordinary business Plugins should prefer `processbridge` below and continue to
-use typed Services with `Requires` and `Provides`. Direct `process` usage is
-mainly for implementing Adapters, wire bindings, protocol integrations, or an
-explicit Host capability outside the Gordis Service graph.
+In this stdio implementation, `processbridge` below connects ordinary Plugins
+through typed Services with `Requires` and `Provides`. Direct `process` usage
+supports Adapters, wire bindings, protocol integrations, or an explicit Host
+capability outside the Gordis Service graph. The following examples and Scope
+rules apply only to this implementation, not to RPC Units.
 
 The Host starts the process and explicitly exports the methods that the plugin may call:
 

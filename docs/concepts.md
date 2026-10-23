@@ -181,19 +181,30 @@ must not escape into cross-generation global state. See
 
 ## Out-of-process execution
 
-Crossing a process boundary does not change the business contract. A native provider publishes a real Go object; `processbridge.Adapter` publishes a typed proxy under the same `Key[T]`:
+Crossing a process boundary does not change the business contract. A native
+provider publishes a real Go object; `rpc.NewProcess` publishes a typed proxy
+under the same `Key[T]` after the child Unit is Ready:
 
 ```text
 consumer ── Get(GreeterKey) ──> local implementation
                             └─> typed proxy ── RPC ──> remote implementation
 ```
 
-The consumer does not know which process owns the implementation. Process assembly still needs an explicit wire binding because a service name alone cannot define parameter encoding, error mapping, or cancellation semantics. See [Process Protocol](process-protocol.md).
+The consumer keeps using the ordinary interface. The Host declares the child
+Boundary; the child uses `rpc.ServeUnit` to run its Plugins and instances.
+Bindings define parameter encoding, error mapping, and cancellation semantics;
+ordinary Go interfaces can use generated Bindings. See
+[RPC Concepts](../rpc/docs/concepts.md) and [basic](../rpc/examples/basic/README.md).
 
-Dynamic Lookup requires a local Host. Such callers can discover visible typed
-Adapter proxies. A detached/process Scope returns `ErrLookupUnsupported`
-instead of absence or a fixed binding; there is no dynamic query channel from
-the child to the Host. Its declared `Get` bindings remain supported.
+`Lookup` queries only the caller's local Host View, which may contain typed
+proxies. An RPC Unit has its own Host; Host services cross its boundary through
+declared Imports and fixed `Get` bindings, with no cross-process dynamic lookup.
+
+The older `processbridge` creates a detached child Scope without a child Host.
+That Scope returns `ErrLookupUnsupported` for Lookup while retaining declared
+`Get` bindings. This stdio implementation still supports cross-process events
+and the application-plugin example; see the
+[legacy protocol](process-protocol.md).
 
 ## Boundaries
 

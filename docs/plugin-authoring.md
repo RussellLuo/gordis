@@ -189,7 +189,7 @@ The Key name and exact Go type must match the provider's contract.
 | --- | --- |
 | Zero value, `false`, `nil` | No provider is published and Ready at that label, or it is frozen/stopping |
 | Value, `true`, `nil` | The current provider was available at the instant of lookup |
-| Zero value, `false`, error | Invalid Key or contract type mismatch; `ErrClosed` for a nil/closed/frozen caller; `ErrStale` for a superseded generation; `ErrLookupUnsupported` for a live detached/process Scope |
+| Zero value, `false`, error | Invalid Key or contract type mismatch; `ErrClosed` for a nil/closed/frozen caller; `ErrStale` for a superseded generation; `ErrLookupUnsupported` for a live detached Scope without a local Host |
 
 The caller must be a current, unfrozen Host generation. `Activate` may query
 other Ready providers, but its own staged `Provide` values are not visible
@@ -287,24 +287,31 @@ responder.
 
 ## 6. Out-of-process plugins
 
-Business plugins use the same `Spec`, `Activate`, `Get`, `Provide`, and Scope
-APIs. Assembly uses `processbridge.Adapter`, the child executable uses
-`processbridge.Serve`, and explicit `Binding` values define JSON DTO and method
-wire behavior.
+Business Plugins keep the same `Spec`, `Activate`, `Get`, `Provide`, and Scope
+APIs. Use the [RPC module](../rpc/README.md) for ordinary Services:
 
-Register the Adapter with the logical business Plugin ID. Consumers continue to
-require the same `Key[T]`; the Adapter publishes a typed proxy during
-`Activate`. Only contracts with explicit request/response, cancellation, and
-error semantics should cross a process boundary. See
-[Process Protocol](process-protocol.md).
+- Keep interfaces, typed Keys, and DTOs in a contract package. Generate Bindings
+  into a separate package; ordinary business packages do not depend on RPC.
+- The Host registers `rpc.NewProcess` with the command, program identity, and
+  expected ChildBoundary. Imports become Requires; Exports become Provides.
+- The child calls `rpc.ServeUnit` with its ordinary Plugins, instances, program
+  configuration, Imports, and Exports. The Unit runs its own local Host.
 
-`Lookup` requires a local Host. A Host-backed caller can discover visible
-Adapter proxies, but the detached Scope inside the child process returns
-`ErrLookupUnsupported`, including for services already accessible through its
-fixed `Get` bindings. There is no cross-process dynamic lookup protocol.
+Consumers continue to require the same `Key[T]`. The process Plugin publishes
+all export proxies after remote Ready. Only contracts with clear
+request/response, cancellation, and error semantics should cross the boundary.
+Start with [basic](../rpc/examples/basic/README.md), then
+[duplex](../rpc/examples/duplex/README.md) and
+[stream](../rpc/examples/stream/README.md).
 
-Cross-process events likewise leave the business Plugin unchanged: it still
-uses `events.Bind(scope)`. Assembly registers matching `BindTopic`/`BindHook`
-values, explicit `EventCodec`s, and Publish/Subscribe directions in Adapter and
-Serve. Local-only events need no wire. A remote Plugin cannot use
-`Scope.Env().Mount` to create a child invisible to the Host.
+`Lookup` stays within the caller's local Host View. Child access to external
+Host services uses declared Imports and fixed `Get` bindings; RPC does not
+provide cross-process dynamic lookup or management of the external Host graph.
+Unit assembly is currently a closed static graph; see
+[RPC Concepts](../rpc/docs/concepts.md).
+
+Cross-process EventBus integration is not yet implemented in RPC. The existing
+[process-events](../examples/process-events/README.md) and
+[application-plugin](../examples/application-plugin/README.md) examples still
+use `processbridge.Adapter/Serve`. Their event codecs, detached Scope, and
+protocol are described in the [legacy stdio protocol](process-protocol.md).

@@ -2,9 +2,9 @@
 
 [English](development.md) | 中文 · [返回 README](../README.zh.md)
 
-以下命令从 `rpc/` 执行，需使用与 [go.mod](../go.mod) 匹配的 Go 工具链。`GOWORK=off` 使用模块自身依赖；可设置 `GOCACHE=/tmp/qi-review-cache` 指定可写缓存。
+以下命令从 `rpc/` 执行，需使用与 [go.mod](../go.mod) 匹配的 Go 工具链。`GOWORK=off` 使用模块自身依赖；可设置 `GOCACHE=/tmp/gordis-rpc-cache` 指定可写缓存。
 
-模块已固定支持 jsonschemax 的 `github.com/RussellLuo/jsonschema-go v0.0.0-20261020143036-d0e0ff947dfa`。Go 按普通模块依赖下载，无需相邻 jsonschema-go 目录或本地 replace；Qi 开发工作区和集成探针也使用同一固定版本。
+模块已固定支持 jsonschemax 的 `github.com/RussellLuo/jsonschema-go v0.0.0-20261020143036-d0e0ff947dfa`。Go 按普通模块依赖下载，无需相邻 jsonschema-go 目录或本地 replace。
 
 ## 常用检查
 
@@ -32,23 +32,30 @@ basic 的生成与运行命令见 [Binding](bindings.zh.md) 和 [basic 示例](.
 
 ## 测试分别证明什么
 
-库内测试覆盖配置声明、Schema 适配、默认值、严格解码、映射与隔离，不初始化业务的 DescribeProgram 回收，Initialize 前的 Host 校验与 child 独立校验，以及 Unit/边界拒绝、握手校验、启动期限、导出校验取消、真实子进程调用与回调、流取消、激活失败回滚及回收。测试针对适配层职责，不重复 jsonschema-go 的类型/约束矩阵，也不证明完整 meta-schema 合法性。fixture 位于模块内，不依赖 Qi 或 PoC。示例测试另检查 Host 不包含 child 业务实现、普通契约与业务包不依赖 RPC。
+库内测试覆盖配置声明、Schema 适配、默认值、严格解码、映射与隔离，不初始化业务的 DescribeProgram 回收，Initialize 前的 Host 校验与 child 独立校验，以及 Unit/边界拒绝、握手校验、启动期限、导出校验取消、真实子进程调用与回调、流取消、激活失败回滚及回收。测试针对适配层职责，不重复 jsonschema-go 的类型/约束矩阵，也不证明完整 meta-schema 合法性。fixture 位于模块内，不依赖下游仓库。示例测试另检查 Host 不包含 child 业务实现、普通契约与业务包不依赖 RPC。
 
-验证 Qi 工具适配与 Profile 集成时，从 Qi 仓库根目录执行，并启用仓库工作区：
+当前可运行示例见[示例导航](../examples/README.zh.md)，程序配置规则见[核心概念](concepts.zh.md#声明程序配置)。真实进程检查需要 Unix socket 与本地监听权限；校验输出保存到临时目录。
+
+## 发行边界
+
+本模块位于 Gordis 仓库的 `rpc/` 目录，module path 为 `github.com/RussellLuo/gordis/rpc`。Core 保留 `github.com/RussellLuo/gordis`，不依赖 RPC。RPC 使用 `rpc/v0.1.0` 形式的标签独立发布；Core 使用 `v0.1.0` 形式的根标签。RPC 尚未发布，go.mod 不包含本地 replace。jsonschema-go 使用固定远程版本。
+
+本地验证覆盖 darwin/arm64。正式版本构建、独立发行依赖和其他目标平台仍需各自验证。更改未发布 API 或协议时，Host、child 与生成代码须同步更新。
+
+协议仍为 `gordis-rpc/1`，transport 握手版本为 1；这不表示可混用配置载荷变更前后的二进制。ConfigTarget、ConfigMode、ProcessConfigMode、ForwardConfig、NoConfig 已删除；有配置程序通过 Unit.Config/NewConfig/Configure 声明，无配置程序使用 ConfigSpec 零值。[stream 示例](../examples/stream/README.zh.md)已交付，Unit 配方仍属后续阶段。
+
+## 下游集成：Qi
+
+修改 Qi 适配层或验证 RPC 变更对 Qi 的影响时，执行以下检查。它们与本模块自身检查分开，
+从 Qi 仓库根目录运行，并启用仓库工作区：
 
 ```sh
 go test -race -count=1 -timeout=180s ./builtin/tools/process/... ./builtin/bundle ./builtin/examples/tool-process/...
 go test -race ./kernel/boot/...
 ```
 
-这些检查覆盖工具语义、进程清理、默认注册与 Profile 路径准备，不等同于外部真实模型验证。当前可运行示例见[示例导航](../examples/README.zh.md)。
+Qi 开发工作区映射相邻 Gordis checkout 的 `../gordis/rpc`；qi-build 显式接收这项源码映射。
+其工作区和集成探针使用同一固定版本的 jsonschema-go。
 
-程序配置规则见[核心概念](concepts.zh.md#声明程序配置)。上述命令覆盖配置、运行/协议与 Qi 集成。真实进程检查需要 Unix socket 与本地监听权限；校验输出保存到临时目录。
-
-## 发行边界
-
-本模块位于 Gordis 仓库的 `rpc/` 目录，module path 为 `github.com/RussellLuo/gordis/rpc`。Core 保留 `github.com/RussellLuo/gordis`，不依赖 RPC。RPC 使用 `rpc/v0.1.0` 形式的标签独立发布；Core 使用 `v0.1.0` 形式的根标签。RPC 尚未发布，go.mod 不包含本地 replace。Qi 开发工作区映射相邻 Gordis checkout 的 `../gordis/rpc`；qi-build 显式接收这项源码映射。jsonschema-go 使用固定远程版本。
-
-本地验证覆盖 darwin/arm64。正式版本构建、独立发行依赖、其他目标平台和外部真实模型链路仍需各自验证；本库不替代 Qi 的 LLM/prompt 领域适配。更改未发布 API 或协议时，Host、child 与生成代码须同步更新。
-
-协议仍为 `gordis-rpc/1`，transport 握手版本为 1；这不表示可混用配置载荷变更前后的二进制。ConfigTarget、ConfigMode、ProcessConfigMode、ForwardConfig、NoConfig 已删除；有配置程序通过 Unit.Config/NewConfig/Configure 声明，无配置程序使用 ConfigSpec 零值。[stream 示例](../examples/stream/README.zh.md)已交付，Unit 配方仍属后续阶段。
+这些检查覆盖工具语义、进程清理、默认注册与 Profile 路径准备。外部真实模型链路需要单独验证；
+RPC 不替代 Qi 的 LLM/prompt 领域适配。

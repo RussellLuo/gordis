@@ -86,13 +86,16 @@ required Service 暂缺时逻辑 Instance 自动进入 `pending`；挂载 provid
 ownership 与 readiness 明确分离：child 随 owner generation 换代和清理；实例是否能 Ready
 只由显式声明的 Service 依赖决定。
 
-管理面可以通过 `Host.Changes()` 原子提交跨实例变更。可选的 `events` 与 `processbridge`
-沿用相同的 Service、Scope 和生命周期模型；核心不读取配置文件或维护另一棵 Loader 图。
+管理面可以通过 `Host.Changes()` 原子提交跨实例变更。可选的 `events` 子包与
+[RPC 模块](rpc/README.zh.md)沿用相同的 Service、Scope 和生命周期模型；核心不读取配置文件或维护另一棵 Loader 图。
 
 ## 示例
 
 从 [basic](examples/basic/README.zh.md) 开始了解类型化 Service、配置和实例挂载。完整的事件、
 隔离、所有权、就绪、动态变更、进程插件与应用集成示例见[示例指南](examples/README.zh.md)。
+
+普通 Service 的子进程运行方式见 [RPC 示例](rpc/examples/README.zh.md)，按
+`basic → duplex → stream` 阅读。
 
 ## 文档
 
@@ -100,15 +103,20 @@ ownership 与 readiness 明确分离：child 随 owner generation 换代和清�
 - [插件编写](docs/plugin-authoring.zh.md)：契约、资源管理与应用装配。
 - [生命周期](docs/lifecycle.zh.md)：启动、排空、失败传播与诊断参考。
 - [动态实例管理](docs/dynamic.zh.md)：单实例操作、批量变更、等待与恢复。
-- [进程协议](docs/process-protocol.zh.md)：按需阅读的双向 RPC 与远端清理进阶参考。
+- [RPC 架构与生命周期](rpc/docs/architecture.zh.md)：进程启动、服务调用、回调与清理。
+- [旧 stdio 进程协议](docs/process-protocol.zh.md)：进程事件与 application-plugin 示例仍使用的
+  `process`/`processbridge` 实现。
 
 ## 能力边界
 
 Gordis 核心只管理 Go 插件图、类型化服务和生命周期。HTTP、UI、Agent、插件包分发和
 持久化属于应用层职责。
 
-`process`/`processbridge` 传输面向受信任的本机 stdio 子进程，不提供远程发现、鉴权、断线重连、原地修改
-配置、并行运行新旧 generation 或强制终止 goroutine。
+普通 Service 在受信任的本地子进程中运行时使用 RPC 模块。旧 `process`/`processbridge`
+stdio 传输仍用于跨进程事件与 application-plugin 示例。两套协议不兼容，迁移时需要重新构建
+Host 和插件程序。
+
+进程执行不构成不可信代码沙箱。两套传输均不提供远程发现、鉴权、断线重连或强制终止 goroutine。
 
 ## 致谢
 

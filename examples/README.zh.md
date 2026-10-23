@@ -22,9 +22,8 @@
 | 示例 | 重点 |
 | --- | --- |
 | [events](events/README.zh.md) | 类型化 Topic 的订阅与发布 |
-| [process](process/README.zh.md) | 由外部进程实现的类型化 Service |
+| [RPC](../rpc/examples/README.zh.md) | 类型化远端 Service、嵌套回调和流式结果 |
 | [process events](process-events/README.zh.md) | 由外部进程发布的类型化 Topic |
-| [duplex](duplex/README.zh.md) | 进程外 Plugin 同时消费和提供类型化 Service |
 
 ## 应用集成
 

@@ -24,9 +24,8 @@ and an explanation of the implementation.
 | Example | Focus |
 | --- | --- |
 | [events](events/README.md) | Typed Topic subscription and publication |
-| [process](process/README.md) | A typed Service implemented by an external process |
+| [RPC](../rpc/examples/README.md) | Typed remote Services, nested callbacks, and streaming results |
 | [process events](process-events/README.md) | A typed Topic published by an external process |
-| [duplex](duplex/README.md) | An external Plugin consuming and providing typed Services |
 
 ## Application integration
 

@@ -164,18 +164,25 @@ Scope 和后台 goroutine 都不应逃逸到跨代全局状态。精确停止顺
 
 ## 进程外执行
 
-跨进程不会改变业务契约。原生提供者发布真实 Go 对象；`processbridge.Adapter` 在同一个 `Key[T]` 下发布类型化代理：
+跨进程不会改变业务契约。原生提供者发布真实 Go 对象；`rpc.NewProcess` 在子进程 Unit
+Ready 后，在同一个 `Key[T]` 下发布类型化代理：
 
 ```text
 consumer ── Get(GreeterKey) ──> 本地实现
                             └─> 类型化代理 ── RPC ──> 远端实现
 ```
 
-Consumer 不知道服务来自哪个进程。进程装配仍需显式 wire binding，因为仅凭服务名无法推导参数序列化、错误映射和取消语义。详见[进程协议](process-protocol.zh.md)。
+consumer 继续使用普通接口。Host 声明子进程 Boundary；子进程通过 `rpc.ServeUnit`
+运行自己的 Plugin 和实例。Binding 定义参数序列化、错误映射与取消语义，普通 Go 接口可使用
+生成的 Binding。详见 [RPC 核心概念](../rpc/docs/concepts.zh.md)和
+[basic 示例](../rpc/examples/basic/README.zh.md)。
 
-动态 Lookup 要求调用方带有本地 Host，可以查询可见的 Adapter 类型化代理。detached/process
-Scope 返回 `ErrLookupUnsupported`，不会把不支持查询伪装成缺失或固定绑定；子进程到 Host
-尚无动态查询通道。其已声明的 `Get` 固定绑定仍受支持。
+`Lookup` 只查询调用方本地 Host 的 View，其中可以包含类型化代理。RPC Unit 拥有自己的
+Host；外部 Host 服务通过显式 Imports 和固定 `Get` 绑定进入 Unit，没有跨进程动态查询协议。
+
+旧 `processbridge` 为子进程创建不带 Host 的 detached Scope，该 Scope 的 Lookup 返回
+`ErrLookupUnsupported`，已声明的 `Get` 固定绑定仍受支持。这套 stdio 实现仍用于跨进程
+事件与 application-plugin 示例，详见[旧进程协议](process-protocol.zh.md)。
 
 ## 边界
 

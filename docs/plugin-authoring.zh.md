@@ -168,7 +168,7 @@ Ready 后才接受请求。并发入口需要在 reader 清理前拒绝新请求
 | --- | --- |
 | 零值、`false`、`nil` | 该标签没有已发布且 Ready 的 provider，或 provider 已冻结/正在停止 |
 | 服务值、`true`、`nil` | 查询这一刻当前 provider 可用 |
-| 零值、`false`、错误 | Key 无效或契约类型不匹配；nil/关闭/冻结调用方返回 `ErrClosed`；过期 generation 返回 `ErrStale`；有效 detached/process Scope 返回 `ErrLookupUnsupported` |
+| 零值、`false`、错误 | Key 无效或契约类型不匹配；nil/关闭/冻结调用方返回 `ErrClosed`；过期 generation 返回 `ErrStale`；有效但不带本地 Host 的 detached Scope 返回 `ErrLookupUnsupported` |
 
 调用方必须是 Host 中当前有效、未冻结的 generation。`Activate` 中可以查询其他 Ready
 provider，自身 `Provide` 暂存的值要等 Ready 发布后才能查到。未声明的 `Get` 仍报错，即使
@@ -254,18 +254,27 @@ middleware 返回前调用一次的 `Next` 组合 middleware。已经在返回�
 
 ## 6. 进程外插件
 
-业务 Plugin 仍使用相同的 `Spec`、`Activate`、`Get`、`Provide` 和 Scope API。装配层使用
-`processbridge.Adapter`，子进程使用 `processbridge.Serve`，显式 `Binding` 定义 JSON DTO
-与方法 wire 行为。
+业务 Plugin 仍使用相同的 `Spec`、`Activate`、`Get`、`Provide` 和 Scope API。普通 Service
+使用 [RPC 模块](../rpc/README.zh.md)：
 
-Adapter 使用业务 Plugin 的逻辑 ID 注册；consumer 继续依赖同一个 `Key[T]`，Adapter 在
-`Activate` 中发布类型化代理。只有请求/响应、取消和错误语义清晰的契约适合跨进程。详见
-[进程协议](process-protocol.zh.md)。
+- 普通接口、类型化 Key 和 DTO 放在 contract 包；Binding 生成到独立包，普通业务包不依赖 RPC。
+- Host 通过 `rpc.NewProcess` 登记命令、程序身份和预期 ChildBoundary。Imports 对应
+  Requires，Exports 对应 Provides。
+- 子进程通过 `rpc.ServeUnit` 声明普通 Plugin、实例、程序配置、Imports 和 Exports。
+  Unit 在子进程中运行自己的本地 Host。
 
-`Lookup` 要求调用方带有本地 Host。Host 中的调用方可以查询可见的 Adapter 代理；子进程内
-的 detached Scope 则返回 `ErrLookupUnsupported`，包括已能通过固定 `Get` 绑定读取的服务。
-当前没有跨进程动态查询协议。
+consumer 继续依赖同一个 `Key[T]`；process Plugin 在远端 Ready 后发布全部导出代理。
+只有请求/响应、取消和错误语义清晰的契约适合跨进程。从
+[basic](../rpc/examples/basic/README.zh.md) 开始，再阅读
+[duplex](../rpc/examples/duplex/README.zh.md) 和
+[stream](../rpc/examples/stream/README.zh.md)。
 
-跨进程事件同样不改变业务 Plugin：它仍使用 `events.Bind(scope)`。装配层在 Adapter 与
-Serve 两侧用相同的 `BindTopic/BindHook` 登记显式 `EventCodec` 和 Publish/Subscribe 方向；
-纯本地 Event 不需要 wire。远端不能用 `Scope.Env().Mount` 建立 Host 不可见的 child。
+`Lookup` 只查询调用方本地 Host 的 View。子进程通过显式 Imports 和固定 `Get` 绑定访问
+外部 Host 服务；RPC 不提供跨进程动态查询或外部 Host 图的管理。Unit 装配当前是闭合静态图，
+详见 [RPC 核心概念](../rpc/docs/concepts.zh.md)。
+
+RPC 尚未实现跨进程 EventBus 集成。现有
+[process-events](../examples/process-events/README.zh.md) 与
+[application-plugin](../examples/application-plugin/README.zh.md) 示例仍使用
+`processbridge.Adapter/Serve`；事件 codec、detached Scope 和协议见
+[旧 stdio 进程协议](process-protocol.zh.md)。

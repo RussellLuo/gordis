@@ -1,22 +1,27 @@
-# Examples
+# Gordis RPC examples
 
 English | [中文](README.zh.md)
 
-Start with [basic](basic/README.md): an ordinary Greeter Plugin, a generated typed
-Binding, the library process loader, and a standalone plugin program Unit.
-Program configuration is declared with NewConfig, defaults come from New, and
-Configure maps it to ordinary instance configuration.
+Each example focuses on one part of running ordinary Gordis Plugins in a child
+process. Start with `basic`, then continue with `duplex` and `stream`.
+The linked README in each directory contains run instructions, expected output,
+and an explanation of the implementation.
 
-Continue with [duplex](duplex/README.md): the plugin program imports the Host's
-Directory and calls it from Greeter. Both sides use ordinary business Plugins,
-with one Import and one Export. Its zero ConfigSpec accepts only omitted input
-or an empty object, without a Host configuration mode.
+## Process communication
 
-Then read [stream](stream/README.md): consume typed results one chunk at a time,
-first to completion and then stopping early through a local yield error.
+| Example | Focus |
+| --- | --- |
+| [basic](basic/README.md) | A typed remote Service, program configuration, and Local/process comparison |
+| [duplex](duplex/README.md) | Imported Host services and nested callbacks |
+| [stream](stream/README.md) | Typed streaming results, complete consumption, and early stopping |
 
-From `rpc/`, run `GOWORK=off go test -race -count=1 ./examples/...` for real
-Host and plugin programs, configuration, Local/process comparison, streaming and dependency checks.
+## Verification
 
-The Unit assembly recipe and optional events integration belong
-to later stages and are not implemented yet.
+From `rpc/`, run:
+
+```sh
+GOWORK=off go test -race -count=1 ./examples/...
+```
+
+The tests build and run real Host and plugin programs, and check configuration,
+Local/process behavior, streaming results, and dependency boundaries.

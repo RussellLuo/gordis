@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/RussellLuo/gordis"
-	rpc "github.com/RussellLuo/gordis/rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/gordis/rpc/examples/duplex/bindings"
 	"github.com/RussellLuo/gordis/rpc/examples/duplex/contract"
 	"github.com/RussellLuo/gordis/rpc/examples/duplex/plugin"

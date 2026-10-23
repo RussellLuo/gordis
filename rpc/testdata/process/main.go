@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	rpc "github.com/RussellLuo/gordis/rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/gordis/rpc/internal/processfixture"
 	"github.com/RussellLuo/gordis/rpc/internal/processfixture/assembly"
 	"os"

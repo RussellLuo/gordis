@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/RussellLuo/gordis"
-	rpc "github.com/RussellLuo/gordis/rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/gordis/rpc/examples/duplex/bindings"
 	"github.com/RussellLuo/gordis/rpc/examples/duplex/contract"
 	consumer "github.com/RussellLuo/gordis/rpc/examples/duplex/host"

@@ -5,14 +5,9 @@
 Gordis 是一个用于组合 Go 插件的轻量框架，通过类型化服务连接插件，并按依赖关系管理实例的
 启动、停止与资源清理。
 
-## 模块
-
-- 根模块 `github.com/RussellLuo/gordis` 提供插件组合、生命周期与可选的 `events` 子包。
-- [RPC](rpc/README.zh.md) 模块 `github.com/RussellLuo/gordis/rpc` 通过 go-plugin/gRPC 在本地子进程运行 Gordis 插件，拥有独立的 go.mod、依赖、示例和发行标签（`rpc/v…`）。Core 不依赖 RPC。
-
 ## 快速开始
 
-插件通过 `Spec` 描述类型，并在 `Activate` 中启动一代运行：
+插件通过 `Spec` 描述类型，并在 `Activate` 中执行启动逻辑：
 
 ```go
 package main
@@ -60,42 +55,30 @@ func main() {
 greeter: Hello, Gordis!
 ```
 
-`NewHost` 固定静态链接的 Plugin 类型目录；`Env.MountReady` 挂载一个 root 实例并等待
-该次精确 desired revision。`Host.Shutdown` 在程序退出时统一清理已挂载的实例。
+`NewHost` 注册可用的插件类型；`Env.MountReady` 挂载一个实例并等待它就绪。
+`Host.Shutdown` 在程序退出时统一清理已挂载的实例。
 
 ## 核心模型
 
-```text
-Plugin 原型 ──Spec──> PluginSpec
-NewHost（Plugin 类型）──> Host ──> synthetic root Env
-root Env + InstanceSpec ──Mount──> 逻辑 Instance
-                                      └── generation
-                                          ├── Plugin 运行对象
-                                          └── Scope
-
-Key[T]（Requires/Provides）+ Env View = 固定服务绑定
-```
-
-`PluginSpec` 描述可复用的插件类型；`InstanceSpec` 选择类型并配置一个 root 实例。
-每次激活都会创建新的 Plugin 运行对象和 Scope，由 Scope 管理任务、请求和清理。
-required Service 暂缺时逻辑 Instance 自动进入 `pending`；挂载 provider 后 Host 自动收敛。
-
-`Env.Isolate` 派生不可变的可见性 View。`Key[T]` 与 `Requires`/`Provides` 决定依赖和清理
-顺序，View 则选择一代运行期间固定的 provider 标签。
-
-ownership 与 readiness 明确分离：child 随 owner generation 换代和清理；实例是否能 Ready
-只由显式声明的 Service 依赖决定。
-
-管理面可以通过 `Host.Changes()` 原子提交跨实例变更。可选的 `events` 子包与
-[RPC 模块](rpc/README.zh.md)沿用相同的 Service、Scope 和生命周期模型；核心不读取配置文件或维护另一棵 Loader 图。
+- **Plugin（插件类型）**：可复用的类型，通过 `PluginSpec` 声明标识、构造方式和服务依赖。
+- **Instance（插件实例）**：插件类型的一次使用，由 `InstanceSpec` 指定独立的 ID 和配置。
+  Host 按依赖关系协调实例的启动和停止。
+- **Service（服务）**：通过 `Key[T]` 共享的类型化 Go 值。提供者在 `Provides` 中声明服务，
+  用 `scope.Provide` 发布值；消费者在 `Requires` 中声明依赖，用 `scope.Get` 获取服务。
+- **Scope（运行作用域）**：管理一次运行中的任务、请求和清理。每次激活都会创建新的插件对象和 Scope。
 
 ## 示例
 
 从 [basic](examples/basic/README.zh.md) 开始了解类型化 Service、配置和实例挂载。完整的事件、
 隔离、所有权、就绪、动态变更、进程插件与应用集成示例见[示例指南](examples/README.zh.md)。
 
-普通 Service 的子进程运行方式见 [RPC 示例](rpc/examples/README.zh.md)，按
-`basic → duplex → stream` 阅读。
+## 可选扩展
+
+- **事件**：`github.com/RussellLuo/gordis/events` 子包提供插件之间的事件通信，
+  见[事件示例](examples/events/README.zh.md)。
+- **RPC**：[`github.com/RussellLuo/gordis/rpc` 模块](rpc/README.zh.md)让插件在受信任的
+  本地子进程中运行，需要进程执行时再引入；消费者仍通过类型化服务调用。
+  [RPC 示例](rpc/examples/README.zh.md)按 `basic → duplex → stream` 阅读。
 
 ## 文档
 

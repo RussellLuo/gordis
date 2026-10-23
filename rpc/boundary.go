@@ -1,4 +1,4 @@
-package gordisrpc
+package rpc
 
 type Contract struct {
 	ID        string `json:"id"`

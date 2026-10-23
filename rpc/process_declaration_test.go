@@ -1,4 +1,4 @@
-package gordisrpc
+package rpc
 
 import (
 	"encoding/json"

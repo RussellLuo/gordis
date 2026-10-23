@@ -3,7 +3,7 @@ package assembly
 import (
 	"context"
 	"github.com/RussellLuo/gordis"
-	rpc "github.com/RussellLuo/gordis/rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/gordis/rpc/internal/processfixture"
 	"github.com/RussellLuo/gordis/rpc/internal/processfixture/business"
 )

@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/RussellLuo/gordis"
-	rpc "github.com/RussellLuo/gordis/rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/gordis/rpc/examples/stream/bindings"
 	"github.com/RussellLuo/gordis/rpc/examples/stream/contract"
 	"github.com/RussellLuo/gordis/rpc/examples/stream/plugin"

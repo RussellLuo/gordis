@@ -3,7 +3,7 @@ package processfixture
 import (
 	"context"
 	"encoding/json"
-	rpc "github.com/RussellLuo/gordis/rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/gordis/rpc/internal/processfixture/contract"
 )
 

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/RussellLuo/gordis"
-	rpc "github.com/RussellLuo/gordis/rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/gordis/rpc/examples/basic/bindings"
 	"github.com/RussellLuo/gordis/rpc/examples/basic/contract"
 	"github.com/RussellLuo/gordis/rpc/examples/basic/plugin"

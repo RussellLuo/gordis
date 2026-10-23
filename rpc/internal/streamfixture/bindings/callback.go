@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"io"
 
-	rpc "github.com/RussellLuo/gordis/rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	contract "github.com/RussellLuo/gordis/rpc/internal/streamfixture/contract"
 )
 

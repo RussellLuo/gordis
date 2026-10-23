@@ -1,4 +1,4 @@
-package gordisrpc_test
+package rpc_test
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/RussellLuo/gordis"
-	rpc "github.com/RussellLuo/gordis/rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/gordis/rpc/internal/processfixture"
 	"github.com/RussellLuo/gordis/rpc/internal/processfixture/contract"
 )

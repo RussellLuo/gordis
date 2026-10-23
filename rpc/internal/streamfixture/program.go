@@ -2,7 +2,7 @@
 package streamfixture
 
 import (
-	rpc "github.com/RussellLuo/gordis/rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/gordis/rpc/internal/streamfixture/bindings"
 )
 

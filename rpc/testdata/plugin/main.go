@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	rpc "github.com/RussellLuo/gordis/rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/gordis/rpc/internal/testfixture"
 	"os"
 )

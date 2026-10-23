@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/RussellLuo/gordis"
-	rpc "github.com/RussellLuo/gordis/rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/gordis/rpc/examples/stream/bindings"
 	"github.com/RussellLuo/gordis/rpc/examples/stream/contract"
 	consumer "github.com/RussellLuo/gordis/rpc/examples/stream/host"

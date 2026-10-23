@@ -6,15 +6,9 @@ Gordis is a lightweight framework for composing Go plugins through typed
 services and managing instance startup, shutdown, and resource cleanup in
 dependency order.
 
-## Modules
-
-- The root module, `github.com/RussellLuo/gordis`, provides plugin composition, lifecycle and the optional `events` package.
-- [RPC](rpc/README.md), `github.com/RussellLuo/gordis/rpc`, runs Gordis plugins in local go-plugin/gRPC child processes. It has its own go.mod, dependencies, examples and release tags (`rpc/v…`). Core does not depend on RPC.
-
 ## Quick start
 
-A plugin describes its type with `Spec` and starts one generation in
-`Activate`:
+A plugin describes its type with `Spec` and performs startup work in `Activate`:
 
 ```go
 package main
@@ -62,41 +56,22 @@ Running the program prints:
 greeter: Hello, Gordis!
 ```
 
-`NewHost` fixes the compiled Plugin type catalog. `Env.MountReady` adds one
-root instance and waits for its exact desired revision. `Host.Shutdown` cleans
-up mounted instances when the program exits.
+`NewHost` registers the available plugin types. `Env.MountReady` mounts an
+instance and waits for it to become ready. `Host.Shutdown` cleans up mounted
+instances when the program exits.
 
 ## Core model
 
-```text
-Plugin prototype ──Spec──> PluginSpec
-NewHost(Plugin types) ──> Host ──> synthetic root Env
-root Env + InstanceSpec ──Mount──> logical Instance
-                                      └── generation
-                                          ├── runtime Plugin
-                                          └── Scope
-
-Key[T] (Requires/Provides) + Env View = fixed service binding
-```
-
-`PluginSpec` describes a reusable plugin type; `InstanceSpec` selects it and
-configures a concrete root instance. Each activation creates a fresh runtime
-Plugin and Scope, which owns its tasks, requests, and cleanup. Missing required
-services put the logical Instance in `pending`; mounting the provider lets the
-Host converge it automatically.
-
-`Env.Isolate` derives an immutable visibility View. `Key[T]` and
-`Requires`/`Provides` determine dependency and cleanup order, while the View
-selects the provider label fixed for one generation.
-
-Ownership and readiness are deliberately separate: a child follows its owner
-generation for restart and cleanup, but only declared Service dependencies
-decide whether an instance can become ready.
-
-Control planes can use `Host.Changes()` to atomically commit cross-instance
-changes. The optional `events` package and the [RPC module](rpc/README.md) follow
-the same Service, Scope, and lifecycle model; the core does not read configuration files
-or maintain a second Loader graph.
+- **Plugin**: a reusable type whose `PluginSpec` declares its identity,
+  constructor, and service dependencies.
+- **Instance**: one use of a plugin type, with its own ID and configuration
+  selected by `InstanceSpec`. The Host coordinates startup and shutdown in
+  dependency order.
+- **Service**: a typed Go value shared through `Key[T]`. Providers declare
+  `Provides` and publish values with `scope.Provide`; consumers declare
+  `Requires` and access them with `scope.Get`.
+- **Scope**: owns one activation's tasks, requests, and cleanup. Each activation
+  gets a fresh plugin object and Scope.
 
 ## Examples
 
@@ -105,8 +80,14 @@ and instance mounting. See the [examples guide](examples/README.md) for
 events, isolation, ownership, readiness, dynamic changes, process plugins, and
 application integration.
 
-For ordinary Services in child processes, follow the
-[RPC examples](rpc/examples/README.md): `basic`, `duplex`, then `stream`.
+## Optional extensions
+
+- **Events**: the `github.com/RussellLuo/gordis/events` package adds event
+  communication between plugins. See the [events example](examples/events/README.md).
+- **RPC**: the [`github.com/RussellLuo/gordis/rpc` module](rpc/README.md) runs
+  plugins in trusted local child processes. Add it when you need process
+  execution; consumers keep using typed services. Follow the
+  [RPC examples](rpc/examples/README.md): `basic`, `duplex`, then `stream`.
 
 ## Documentation
 

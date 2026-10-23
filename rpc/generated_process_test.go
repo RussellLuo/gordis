@@ -1,4 +1,4 @@
-package gordisrpc_test
+package rpc_test
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/RussellLuo/gordis"
-	rpc "github.com/RussellLuo/gordis/rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/gordis/rpc/internal/genfixture/bindings"
 	"github.com/RussellLuo/gordis/rpc/internal/genfixture/contract"
 	"github.com/RussellLuo/gordis/rpc/internal/genfixture/dto"

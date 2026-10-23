@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	rpc "github.com/RussellLuo/gordis/rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/gordis/rpc/internal/genfixture/business"
 	"github.com/RussellLuo/gordis/rpc/internal/genfixture/dto"
 )

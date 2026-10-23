@@ -4,7 +4,7 @@
 
 Run ordinary [Gordis](https://github.com/RussellLuo/gordis) Plugins in trusted local child processes. Consumers keep using typed service interfaces through `scope.Get`; gordis-rpc handles process startup, RPC calls and cleanup.
 
-An independent Go module: `github.com/RussellLuo/gordis/rpc` (package `gordisrpc`, commonly imported as `rpc`). It uses HashiCorp go-plugin/gRPC and has no Qi dependency. It lives in the Gordis repository under `rpc/`, has no published release, and its API and wire protocol may change. The Core module does not depend on RPC.
+An independent Go module: `github.com/RussellLuo/gordis/rpc` (package `rpc`). It uses HashiCorp go-plugin/gRPC and has no Qi dependency. It lives in the Gordis repository under `rpc/`, has no published release, and its API and wire protocol may change. The Core module does not depend on RPC.
 
 ## Try it
 

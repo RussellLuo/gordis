@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/RussellLuo/gordis"
-	rpc "github.com/RussellLuo/gordis/rpc"
+	"github.com/RussellLuo/gordis/rpc"
 	"github.com/RussellLuo/gordis/rpc/internal/streamfixture"
 	"github.com/RussellLuo/gordis/rpc/internal/streamfixture/business"
 	"os"

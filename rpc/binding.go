@@ -1,6 +1,6 @@
-// Package gordisrpc runs declared Gordis assembly units in trusted local
+// Package rpc runs declared Gordis assembly units in trusted local
 // go-plugin/gRPC processes. Contracts supply codecs; the runtime knows no domains.
-package gordisrpc
+package rpc
 
 import (
 	"context"
@@ -77,7 +77,7 @@ func (b Binding) Spec() gordis.ServiceSpec { return b.spec }
 func (b Binding) Version() string          { return b.version }
 func (b Binding) valid() error {
 	if b.spec.Name() == "" || b.version == "" || b.client == nil || b.resolve == nil || b.provide == nil || b.prepare == nil {
-		return errors.New("gordisrpc: incomplete binding")
+		return errors.New("rpc: incomplete binding")
 	}
 	return nil
 }
@@ -124,7 +124,7 @@ func RequiredServices(bindings []Binding) []gordis.ServiceSpec {
 func ExportClient[T any](s *Session, key gordis.Key[T]) (T, error) {
 	var zero T
 	if s == nil || s.remote == nil {
-		return zero, errors.New("gordisrpc: nil session")
+		return zero, errors.New("rpc: nil session")
 	}
 	for _, b := range s.boundary.Exports {
 		if b.spec == key.Spec() {
@@ -135,7 +135,7 @@ func ExportClient[T any](s *Session, key gordis.Key[T]) (T, error) {
 			return v, nil
 		}
 	}
-	return zero, fmt.Errorf("gordisrpc: undeclared or wrong-type export %s", key.Name())
+	return zero, fmt.Errorf("rpc: undeclared or wrong-type export %s", key.Name())
 }
 func nilValue(v any) bool {
 	if v == nil {

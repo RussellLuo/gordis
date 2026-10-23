@@ -4,7 +4,7 @@
 
 让普通 [Gordis](https://github.com/RussellLuo/gordis) Plugin 在可信的本地子进程中运行。消费者仍通过 `scope.Get` 使用类型化服务接口，gordis-rpc 负责进程启动、远程调用和清理。
 
-独立 Go module：`github.com/RussellLuo/gordis/rpc`，包名 `gordisrpc`，通常以 `rpc` 为导入别名。依赖 HashiCorp go-plugin/gRPC，不依赖 Qi。位于 Gordis 仓库的 `rpc/` 目录，尚未发布版本，API 和 wire 协议仍可能变化。Core 模块不依赖 RPC。
+独立 Go module：`github.com/RussellLuo/gordis/rpc`，包名 `rpc`。依赖 HashiCorp go-plugin/gRPC，不依赖 Qi。位于 Gordis 仓库的 `rpc/` 目录，尚未发布版本，API 和 wire 协议仍可能变化。Core 模块不依赖 RPC。
 
 ## 试一试
 

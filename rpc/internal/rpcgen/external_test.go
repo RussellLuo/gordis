@@ -77,7 +77,7 @@ func(*Plugin)Stream(_ context.Context,b contract.Flag,n int64,f float64,y contra
 		t.Fatal(err)
 	}
 	write("bindings/generated_test.go", `package bindings
-import("context";"encoding/json";"errors";"reflect";"testing";"example.com/consumer/business";"example.com/consumer/contract";rpc "github.com/RussellLuo/gordis/rpc")
+import("context";"encoding/json";"errors";"reflect";"testing";"example.com/consumer/business";"example.com/consumer/contract";"github.com/RussellLuo/gordis/rpc")
 type invoker struct{h rpc.Handler}
 func(i invoker)Call(ctx context.Context,m string,in,out any)error{raw,e:=json.Marshal(in);if e!=nil{return e};r,e:=i.h.Methods[m](ctx,raw);if e!=nil{return e};return json.Unmarshal(r,out)}
 func(i invoker)Stream(ctx context.Context,m string,in any,y func(json.RawMessage)error)error{r,e:=json.Marshal(in);if e!=nil{return e};return i.h.Streams[m](ctx,r,y)}

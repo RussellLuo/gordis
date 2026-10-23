@@ -7,7 +7,7 @@ import (
 	"errors"
 
 	"github.com/RussellLuo/gordis"
-	rpc "github.com/RussellLuo/gordis/rpc"
+	"github.com/RussellLuo/gordis/rpc"
 )
 
 type Service interface {

@@ -5,6 +5,11 @@
 Gordis 是一个用于组合 Go 插件的轻量框架，通过类型化服务连接插件，并按依赖关系管理实例的
 启动、停止与资源清理。
 
+## 模块
+
+- 根模块 `github.com/RussellLuo/gordis` 提供插件组合、生命周期与可选的 `events` 子包。
+- [RPC](rpc/README.zh.md) 模块 `github.com/RussellLuo/gordis/rpc` 通过 go-plugin/gRPC 在本地子进程运行 Gordis 插件，拥有独立的 go.mod、依赖、示例和发行标签（`rpc/v…`）。Core 不依赖 RPC。
+
 ## 快速开始
 
 插件通过 `Spec` 描述类型，并在 `Activate` 中启动一代运行：
@@ -102,7 +107,7 @@ ownership 与 readiness 明确分离：child 随 owner generation 换代和清�
 Gordis 核心只管理 Go 插件图、类型化服务和生命周期。HTTP、UI、Agent、插件包分发和
 持久化属于应用层职责。
 
-进程传输面向受信任的本机 stdio 子进程，不提供远程发现、鉴权、断线重连、原地修改
+`process`/`processbridge` 传输面向受信任的本机 stdio 子进程，不提供远程发现、鉴权、断线重连、原地修改
 配置、并行运行新旧 generation 或强制终止 goroutine。
 
 ## 致谢

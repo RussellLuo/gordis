@@ -6,6 +6,11 @@ Gordis is a lightweight framework for composing Go plugins through typed
 services and managing instance startup, shutdown, and resource cleanup in
 dependency order.
 
+## Modules
+
+- The root module, `github.com/RussellLuo/gordis`, provides plugin composition, lifecycle and the optional `events` package.
+- [RPC](rpc/README.md), `github.com/RussellLuo/gordis/rpc`, runs Gordis plugins in local go-plugin/gRPC child processes. It has its own go.mod, dependencies, examples and release tags (`rpc/v…`). Core does not depend on RPC.
+
 ## Quick start
 
 A plugin describes its type with `Spec` and starts one generation in
@@ -118,7 +123,7 @@ application integration.
 Gordis core manages the Go plugin graph, typed services, and lifecycle. HTTP,
 UI, agents, package distribution, and persistence are application concerns.
 
-The process transport runs trusted local stdio children. It does not provide
+The `process`/`processbridge` transport runs trusted local stdio children. It does not provide
 remote discovery, authentication, reconnection, in-place configuration
 mutation, overlapping old/new generations, or forced goroutine termination.
 

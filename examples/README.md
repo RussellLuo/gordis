@@ -25,10 +25,4 @@ and an explanation of the implementation.
 | --- | --- |
 | [events](events/README.md) | Typed Topic subscription and publication |
 | [RPC](../rpc/examples/README.md) | Typed remote Services, nested callbacks, and streaming results |
-| [process events](process-events/README.md) | A typed Topic published by an external process |
-
-## Application integration
-
-| Example | Focus |
-| --- | --- |
-| [application plugin](application-plugin/README.md) | An application-owned package Loader with process backend and UI |
+| [RPC events](../rpc/examples/events/README.md) | Host Request and Child Notice with complete round-trip waiting |

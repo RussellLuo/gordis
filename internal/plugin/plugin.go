@@ -1,6 +1,6 @@
 // Package plugin owns the common plugin construction and configuration path.
-// It is shared by the Host and processbridge so native and process execution
-// apply exactly the same validation rules.
+// It is used by each Host, including Hosts inside RPC Units, so execution
+// follows exactly the same validation rules.
 package plugin
 
 import (

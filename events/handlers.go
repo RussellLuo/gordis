@@ -105,6 +105,10 @@ func callMiddleware(
 	input any,
 	next func(context.Context, any) (any, error),
 ) (any, error) {
+	return callMiddlewareReturned(sub, ctx, input, next, nil)
+}
+
+func callMiddlewareReturned(sub *subscription, ctx context.Context, input any, next func(context.Context, any) (any, error), returned func() error) (any, error) {
 	var stateMu sync.Mutex
 	var active = true
 	var called bool
@@ -139,6 +143,9 @@ func callMiddleware(
 	stateMu.Lock()
 	active = false
 	stateMu.Unlock()
+	if returned != nil {
+		err = errors.Join(err, returned())
+	}
 	nextWork.Wait()
 	if err != nil {
 		return nil, err

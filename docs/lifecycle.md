@@ -110,7 +110,7 @@ child, waits for its cleanup report, reaps the process, and stops Host callbacks
 after actual handlers return. Process reaping alone does not prove successful
 business cleanup. See [RPC Architecture and Lifecycle](../rpc/docs/architecture.md).
 
-The older `processbridge` instead drives one detached child Scope using the
-Host-assigned instance and generation, without creating a child Host. Its
-`gordis/process/1` cleanup protocol remains in use by the process-events and
-application-plugin examples; see the [legacy stdio protocol](process-protocol.md).
+The [RPC events example](../rpc/examples/events/README.md) uses this Unit/Session
+lifecycle and waits for Request dispatch, including its nested Notice delivery,
+to complete before shutdown. The old stdio adapter and its application example
+have been removed; the [legacy protocol](process-protocol.md) remains a historical reference.

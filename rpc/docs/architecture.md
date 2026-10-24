@@ -35,7 +35,7 @@ The jsonschema-go fork generates and resolves configuration Schema and validates
 ## Startup: business readiness follows process startup
 
 1. **Declare:** the Host registers `NewProcess(ProcessOptions)`; the child declares Identity and Unit through `ServeUnit`.
-2. **Resolve dependencies:** activation resolves Imports through Host Scope.Get, registers teardown, then starts the program. StartupTimeout begins before import validation.
+2. **Resolve dependencies:** activation resolves ordinary Imports through Host Scope.Get and private callbacks through LocalImports, registers teardown, then starts the program. StartupTimeout begins before import validation.
 3. **Discover and check:** Describe returns identity, the complete Boundary and ConfigSchema. The Host compiles this process's Schema and validates program configuration before installing callbacks or sending Initialize. The Host compares contract names, versions and directions against ChildBoundary and checks identity constraints before constructing or activating business instances.
 4. **Initialize:** Imports require a Broker callback server. Initialize sends Session and business configuration. After Unit declaration validation, the child independently validates input, calls New, strictly decodes configuration and calls Configure. All mappings are staged on detached instance copies before Gordis preparation or activation. The child assembles those instances through a Gordis ChangeSet, waits for Ready, then resolves, validates and fixes exports.
 5. **Publish and watch:** `NewProcess` constructs and checks all export clients once, then publishes those same instances through Scope.Provide. Attach runs optional Accept after remote Ready and installs a Scope-owned Watch.
@@ -52,13 +52,15 @@ Discovery reaps on success, error and cancellation. It requires no Scope and ret
 
 For ordinary services, use `NewProcess` to handle Requires/Provides and proxy publication. Use `Attach(ctx, scope, options)` and Accept directly for domain contribution registration or similar adapter logic.
 
-A Plugin using Attach directly must include `RequiredServices(options.ChildBoundary.Imports)` in Requires. Attach resolves dependencies from Scope, preserving callback provider lifetimes; it does not accept arbitrary Host service objects. It does not publish Exports automatically: obtain proxies with `ExportClient(session, key)`, then explicitly Provide them or register domain contributions.
+A Plugin using Attach directly must declare ordinary Imports in Requires. Attach resolves those dependencies through Scope.Get, preserving callback provider lifetimes. An adapter can supply its own activation-owned private callbacks with `BindLocalImport` and `AttachOptions.LocalImports`; these must still match ChildBoundary.Imports and cannot bypass external service dependencies.
+
+Attach does not publish Exports automatically. In Accept, use `session.PrepareExports()` and `PreparedClient(prepared, key)` to inspect the prepared clients, then publish those same objects with `prepared.Provide(scope)` or a declared subset with `prepared.ProvideServices(scope, services...)`. Clients can also remain private for domain contribution registration. The lower-level `ExportClient(session, key)` invokes the factory on each call without publishing; use PreparedClient when object identity matters. See [private callbacks and prepared exports](bindings.md#private-callbacks-and-prepared-exports-for-domain-adapters).
 
 ## Calls and cancellation
 
 Each Attach generates a random Session ID tied to the Host instance and generation. An Invoker is restricted to one contract and Session; ExportClient accepts only declared exports with a matching Go type.
 
-Export requests hold a Scope Ready lease, preventing service release while the call is active. Cancellation reaches the handler; the lease is released only when the actual handler returns. Server streams send chunks synchronously without a runtime production queue. Stopping consumption cancels the remote stream. Domain layers own business concurrency budgets.
+Export requests hold a Scope Ready lease, preventing service release while the call is active. Cancellation reaches the handler; the lease is released only when the actual handler returns. Server streams send chunks synchronously without a runtime production queue. Stopping consumption cancels the remote stream. RPC provides independent outbound Pending and inbound Handling budgets on each side of each Session; domain layers remain responsible for resources such as subscriptions and tokens. Ordinary unary and stream methods share Business admission. Zero admission fields mean unlimited, positive values set caps, and negative values are invalid. Applications explicitly choose their capacities; finite caps reject excess calls immediately. Unlimited work is still counted and drained during shutdown. Host and child configure their own Limits. See [immediate admission](bindings.md#immediate-admission).
 
 The protocol is `gordis-rpc/1`. Control messages and domain DTOs use JSON carried by protobuf BytesValue over gRPC unary/server-stream calls. The transport handshake remains version 1. Rebuild Host and child together; older configuration payloads are not compatible. Wire Go types and RPC paths are private. See [Bindings](bindings.md) for the generated payload format.
 
@@ -74,6 +76,11 @@ Watch reports child node failures and unexpected termination to the Host. If the
 | --- | --- |
 | Ready | Remote readiness was reached; cleared on normal reaping, not a live health check |
 | Nodes | Initialization-time snapshots, not continuously updated node state |
+| Admission | This Host side's classified outbound Pending and inbound Handling counts |
+| CallbackHandling | Actual callbacks still executing; zero while admission is open means idle |
+| CallbacksClosed | Callback admission is closed |
+| CallbacksDrained | Callback admission is closed and actual callback handlers have all exited |
+| CallbackTransportClosed | Callback transport shutdown has completed |
 | Reaped | The process was reaped; this does not prove business cleanup |
 | Cleanup | Inspect CleanupComplete, Forced and Errors for actual cleanup results |
 

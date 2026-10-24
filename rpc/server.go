@@ -21,8 +21,11 @@ import (
 
 type ServeUnitOptions struct {
 	Identity Identity
-	Limits   Limits
-	Unit     Unit
+	// Limits configures the Child peer: outbound import calls, inbound export
+	// handlers, message sizes and orphan grace. Host settings do not override it.
+	// Zero admission fields are unlimited; see Limits for the other zero values.
+	Limits Limits
+	Unit   Unit
 }
 
 // ServeUnit is the standard standalone-program entry. Unit.Config maps program
@@ -37,8 +40,11 @@ func ServeUnit(ctx context.Context, o ServeUnitOptions) error {
 	if e := o.Unit.validate(); e != nil {
 		return e
 	}
+	if err := o.Limits.validate(); err != nil {
+		return err
+	}
 	o.Limits = o.Limits.defaults()
-	server := &unitServer{options: o, done: make(chan struct{})}
+	server := &unitServer{options: o, done: make(chan struct{}), admission: newAdmission(o.Limits)}
 	parent := os.Getppid()
 	plugin.Serve(&plugin.ServeConfig{HandshakeConfig: handshake, Plugins: map[string]plugin.Plugin{"unit": &transport{server: server}}, GRPCServer: func(opts []grpc.ServerOption) *grpc.Server {
 		opts = append(opts, grpc.MaxRecvMsgSize(o.Limits.MaxMessage), grpc.MaxSendMsgSize(o.Limits.MaxMessage), grpc.StatsHandler(server))
@@ -77,8 +83,10 @@ type connKey struct{}
 type connToken struct{ value byte }
 type unitServer struct {
 	mu           sync.Mutex
+	admission    *admission
 	options      ServeUnitOptions
 	broker       *plugin.GRPCBroker
+	callbackConn *grpc.ClientConn
 	grpc         *grpc.Server
 	owner        *connToken
 	info         SessionInfo
@@ -152,6 +160,9 @@ func (s *unitServer) initialize(c context.Context, p packet) (*wrapperspb.BytesV
 		s.mu.Unlock()
 		return nil, errors.New("callback boundary mismatch")
 	}
+	if s.admission == nil {
+		s.admission = newAdmission(s.options.Limits)
+	}
 	s.initialized = true
 	s.info = p.Session
 	s.owner, _ = c.Value(connKey{}).(*connToken)
@@ -166,12 +177,12 @@ func (s *unitServer) initialize(c context.Context, p packet) (*wrapperspb.BytesV
 			return nil, e
 		}
 	}
+	s.callbackConn = conn
 	s.domain, s.cancel = context.WithCancel(context.Background())
-	h, handlers, e := assemble(c, s.options.Unit, p.Config, func(b Binding) Invoker { return &contractInvoker{conn: conn, info: s.info, contract: b.Spec().Name()} })
+	h, handlers, e := assemble(c, s.options.Unit, p.Config, func(b Binding) Invoker {
+		return &contractInvoker{conn: conn, info: s.info, contract: b.Spec().Name(), classes: b.classes, admission: s.admission}
+	})
 	s.host, s.handlers = h, handlers
-	if conn != nil { // Keep imported dependencies available until all child cleanup completes.
-		go func() { <-s.done; _ = conn.Close() }()
-	}
 	if e != nil {
 		return nil, e
 	}
@@ -191,6 +202,9 @@ func (s *unitServer) check(info SessionInfo) error {
 func (s *unitServer) beginStop() {
 	s.mu.Lock()
 	s.ready = false
+	if s.admission != nil {
+		s.admission.closeHandling()
+	}
 	s.mu.Unlock()
 	s.stop.Do(func() {
 		if s.cancel != nil {
@@ -208,6 +222,18 @@ func (s *unitServer) beginStop() {
 					}
 				}
 			}
+
+			// All local cleanup (including fixed-import callbacks) has ended.
+			// Close the callback connection before waiting for detached outbound
+			// calls, which may otherwise wait on a Host handler until this close.
+			// Actual Host execution remains the Host Session's drain responsibility.
+			if s.callbackConn != nil {
+				_ = s.callbackConn.Close()
+			}
+			if s.admission != nil {
+				s.admission.close()
+				s.admission.wait()
+			}
 			r.CleanupComplete = len(r.Errors) == 0
 			s.mu.Lock()
 			s.cleanup = r
@@ -216,7 +242,7 @@ func (s *unitServer) beginStop() {
 		}()
 	})
 }
-func (s *unitServer) acquire(c context.Context, p packet) (boundHandler, context.Context, func(), error) {
+func (s *unitServer) acquire(c context.Context, p packet, stream bool) (boundHandler, context.Context, func(), error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.ready || p.Session != s.info {
@@ -226,13 +252,18 @@ func (s *unitServer) acquire(c context.Context, p packet) (boundHandler, context
 	if !ok {
 		return boundHandler{}, nil, nil, status.Error(codes.PermissionDenied, "undeclared contract")
 	}
+	done, e := h.enter(c, s.admission, p.Method, stream)
+	if e != nil {
+		return boundHandler{}, nil, nil, e
+	}
 	release, e := h.scope.AcquireReady()
 	if e != nil {
+		done()
 		return boundHandler{}, nil, nil, e
 	}
 	c, cancel := context.WithCancel(c)
 	stop := context.AfterFunc(s.domain, cancel)
-	return h, c, func() { stop(); cancel(); release() }, nil
+	return h, c, func() { stop(); cancel(); release(); done() }, nil
 }
 func (s *unitServer) unary(c context.Context, method string, in *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error) {
 	var p packet
@@ -250,7 +281,7 @@ func (s *unitServer) unary(c context.Context, method string, in *wrapperspb.Byte
 		return s.initialize(c, p)
 	}
 	if method == "Call" {
-		h, c, done, e := s.acquire(c, p)
+		h, c, done, e := s.acquire(c, p, false)
 		if e != nil {
 			return nil, e
 		}
@@ -283,7 +314,7 @@ func (s *unitServer) stream(method string, in *wrapperspb.BytesValue, stream grp
 		return e
 	}
 	if method == "Stream" {
-		h, c, done, e := s.acquire(stream.Context(), p)
+		h, c, done, e := s.acquire(stream.Context(), p, true)
 		if e != nil {
 			return e
 		}
@@ -315,7 +346,15 @@ func (s *unitServer) stream(method string, in *wrapperspb.BytesValue, stream grp
 		}
 	}
 }
-func call(c context.Context, h Handler, p packet) (*wrapperspb.BytesValue, error) {
+func call(c context.Context, h Handler, p packet) (out *wrapperspb.BytesValue, err error) {
+	defer func() {
+		if value := recover(); value != nil {
+			out, err = nil, status.Errorf(codes.Internal, "handler panic: %v", value)
+		}
+	}()
+	if err := c.Err(); err != nil {
+		return nil, rpcError(err)
+	}
 	f := h.Methods[p.Method]
 	if f == nil {
 		return nil, status.Error(codes.Unimplemented, "unknown method")
@@ -329,7 +368,15 @@ func call(c context.Context, h Handler, p packet) (*wrapperspb.BytesValue, error
 	}
 	return wrapperspb.Bytes(raw), nil
 }
-func streaming(c context.Context, h Handler, p packet, s grpc.ServerStream) error {
+func streaming(c context.Context, h Handler, p packet, s grpc.ServerStream) (err error) {
+	defer func() {
+		if value := recover(); value != nil {
+			err = status.Errorf(codes.Internal, "handler panic: %v", value)
+		}
+	}()
+	if err := c.Err(); err != nil {
+		return rpcError(err)
+	}
 	f := h.Streams[p.Method]
 	if f == nil {
 		return status.Error(codes.Unimplemented, "unknown stream")
@@ -343,8 +390,10 @@ func streaming(c context.Context, h Handler, p packet, s grpc.ServerStream) erro
 }
 
 type callbackRouter struct {
-	info     SessionInfo
-	handlers map[string]boundHandler
+	admission *admission
+	tracker   *callbackServer
+	info      SessionInfo
+	handlers  map[string]boundHandler
 }
 
 func (r *callbackRouter) unary(c context.Context, method string, in *wrapperspb.BytesValue) (*wrapperspb.BytesValue, error) {
@@ -359,6 +408,18 @@ func (r *callbackRouter) unary(c context.Context, method string, in *wrapperspb.
 	if !ok || method != "Call" {
 		return nil, status.Error(codes.PermissionDenied, "undeclared callback")
 	}
+	done, err := h.enter(c, r.admission, p.Method, false)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	if r.tracker != nil {
+		release, err := r.tracker.enter()
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+	}
 	return call(c, h.Handler, p)
 }
 func (r *callbackRouter) stream(method string, in *wrapperspb.BytesValue, s grpc.ServerStream) error {
@@ -370,5 +431,37 @@ func (r *callbackRouter) stream(method string, in *wrapperspb.BytesValue, s grpc
 	if p.Session != r.info || !ok || method != "Stream" {
 		return status.Error(codes.PermissionDenied, "undeclared callback")
 	}
+	done, err := h.enter(s.Context(), r.admission, p.Method, true)
+	if err != nil {
+		return err
+	}
+	defer done()
+	if r.tracker != nil {
+		release, err := r.tracker.enter()
+		if err != nil {
+			return err
+		}
+		defer release()
+	}
 	return streaming(s.Context(), h.Handler, p, s)
+}
+
+// Validate the local method before charging its class. Callback lifetime is
+// additionally tracked through Dispose, independently of caller cancellation.
+func (h boundHandler) enter(ctx context.Context, a *admission, method string, stream bool) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	class := h.classes[method]
+	if stream {
+		if h.Streams[method] == nil {
+			return nil, status.Error(codes.Unimplemented, "unknown stream")
+		}
+		if class != Business {
+			return nil, status.Error(codes.InvalidArgument, "stream must use Business admission")
+		}
+	} else if h.Methods[method] == nil {
+		return nil, status.Error(codes.Unimplemented, "unknown method")
+	}
+	return a.enter(ctx, class, false)
 }

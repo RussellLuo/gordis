@@ -110,6 +110,6 @@ Unit Ready 后才开放导出。停止时先 quiesce 子进程、等待清理报
 handler 返回后完成 Host 回调服务的停止。进程已回收不能单独证明业务清理成功。
 详见 [RPC 架构与生命周期](../rpc/docs/architecture.zh.md)。
 
-旧 `processbridge` 则使用 Host 指定的 instance 和 generation 驱动一个 detached Scope，
-不创建子进程 Host。process-events 与 application-plugin 示例仍使用这套
-`gordis/process/1` 清理协议，详见[旧 stdio 进程协议](process-protocol.zh.md)。
+[RPC 事件示例](../rpc/examples/events/README.zh.md) 使用上述 Unit/Session 生命周期，
+在停止前等待 Request 派发及其嵌套 Notice 投递完成。旧 stdio adapter 与复杂应用示例已删除。
+[旧 stdio 协议](process-protocol.zh.md) 仅保留为历史说明。

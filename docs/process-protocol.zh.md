@@ -2,15 +2,15 @@
 
 [English](process-protocol.md) | 中文
 
-本文描述旧 `process`/`processbridge` 实现，现有
-[process-events](../examples/process-events/README.zh.md) 与
-[application-plugin](../examples/application-plugin/README.zh.md) 仍在使用。
-普通 Service 插件使用 [RPC 模块](../rpc/README.zh.md)及其
-[示例](../rpc/examples/README.zh.md)。两套协议不兼容。
+历史说明：已删除 `process`、`processbridge`（含 `processtest`）、
+`process.LoadPackage/Manifest/Package` 和 application-plugin。下文 API 与代码片段描述
+已移除的实现。
+Service 和事件插件使用 [RPC 模块](../rpc/README.zh.md)及其[示例](../rpc/examples/README.zh.md)。
+两套协议不兼容，迁移须重建两端；包交付和 UI 场景已退役，未移植到 RPC。
 
 `process` 监督受信任的本机子进程，并通过 stdio 提供双向 JSON RPC。Host 和插件都能发起调用；业务方法、DTO 和授权由应用定义，Go 对象、Scope 和服务 Key 不跨进程传递。
 
-当前协议标识为 `gordis/process/1`，双方必须精确匹配。发生不兼容变化时，应升级协议并重新构建 Host、插件和 manifest。
+历史协议标识为 `gordis/process/1`，双方必须精确匹配。发生不兼容变化时，应升级协议并重新构建 Host、插件和 manifest。
 
 协议和能力标识的命名空间统一使用 `/` 分隔。原来的点号标识不作为兼容别名接受；采用新名称时，需要一起重新构建 Host 和插件，并重新生成包 manifest。
 
@@ -56,13 +56,8 @@ Host Client.Call
 `process.Caller.Call(ctx, method, params, result)` 可并发使用。初始化期间也可以回调 Host；
 处理器还可以嵌套调用对端，但不应形成递归调用或等待环。
 
-具体的可执行证据包括：
-
-- [子进程 `Serve` 与 `Caller` handler](../process/client_test.go#L97-L124)；
-- [`TestDuplexInitializationNestedCallsAndCorrelation`](../process/duplex_test.go#L32-L64)，
-  验证嵌套调用、并发和请求关联；
-- [`TestPluginLifecycleConsistency`](../processbridge/execution_test.go#L242-L369)，
-  验证类型化 `Requires + Provides`、生命周期和清理。
+当前服务调用、回调和清理由 [RPC 测试](../rpc/process_test.go)覆盖；
+跨进程事件由 [RPC events 测试](../rpc/events/bridge_test.go)覆盖。
 
 ## 线协议
 

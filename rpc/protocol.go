@@ -101,13 +101,13 @@ func receive(c context.Context, conn grpc.ClientConnInterface, method string, in
 	defer cancel()
 	stream, e := conn.NewStream(c, &grpc.StreamDesc{ServerStreams: true}, "/"+serviceName+"/"+method)
 	if e != nil {
-		return e
+		return contextError(e)
 	}
 	if e = stream.SendMsg(p); e != nil {
-		return e
+		return contextError(e)
 	}
 	if e = stream.CloseSend(); e != nil {
-		return e
+		return contextError(e)
 	}
 	for {
 		v := new(wrapperspb.BytesValue)
@@ -125,6 +125,8 @@ func receive(c context.Context, conn grpc.ClientConnInterface, method string, in
 }
 func contextError(e error) error {
 	switch status.Code(e) {
+	case codes.ResourceExhausted:
+		return errors.Join(ErrBackpressure, e)
 	case codes.Canceled:
 		return errors.Join(context.Canceled, e)
 	case codes.DeadlineExceeded:
@@ -133,6 +135,9 @@ func contextError(e error) error {
 	return e
 }
 func rpcError(e error) error {
+	if errors.Is(e, ErrBackpressure) && status.Code(e) != codes.ResourceExhausted {
+		return status.Error(codes.ResourceExhausted, e.Error())
+	}
 	if errors.Is(e, context.Canceled) || errors.Is(e, context.DeadlineExceeded) {
 		return status.FromContextError(e).Err()
 	}

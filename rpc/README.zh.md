@@ -19,10 +19,14 @@ GOWORK=off go build -o /tmp/gordis-rpc-basic-plugin ./examples/basic/plugin/cmd
 
 [basic 示例](examples/basic/README.zh.md) 介绍配置、普通 Plugin、生成的 Binding 和插件程序 Unit。Host 程序用 `NewProcess` 注册远端 provider，插件程序用 `ServeUnit` 运行自己的装配。
 
+普通 unary 和 stream 共用每个 Session 的 Business 额度。并发额度字段 0 表示不限，正数为明确上限，负数无效。需要上限时在 `rpc.Limits` 中按负载明确填写，库不提供数值预设。有限额度超额立即失败，没有等待队列。用 `errors.Is(err, rpc.ErrBackpressure)` 识别资源耗尽（也包括消息大小超限），再查看错误详情区分原因。Host 与 Child 分别配置自己的 `Limits`；Host 配置不会修改 Child 的额度。详见[即时准入](docs/bindings.zh.md#即时准入)。
+
 ## 继续阅读
 
 - [核心概念](docs/concepts.zh.md)：契约、Binding、Boundary、Unit、Session 和程序配置。
 - [架构与生命周期](docs/architecture.zh.md)：职责划分、启动、回调和清理。
 - [Binding](docs/bindings.zh.md)：从 Go 接口生成适配代码，或手写 Codec。
-- [开发与验证](docs/development.zh.md)：运行命令、验收记录和发行边界。
+- [开发与验证](docs/development.zh.md)：运行命令和发行边界。
 - [示例导航](examples/README.zh.md)：已有的可运行示例。
+- [RPC events](events/README.zh.md)：跨进程 Topic 通知、Hook 选择/Waterfall、来源路由、订阅所有权与 Ready 协调。
+- [双向事件示例](examples/events/README.zh.md)：Host Request、Child Notice 和普通事件 handler。

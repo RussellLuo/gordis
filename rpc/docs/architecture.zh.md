@@ -35,7 +35,7 @@ jsonschema-go fork 负责配置 Schema 生成、解析及输入校验；gordis-r
 ## 启动：进程存在之后，还要等待业务 Ready
 
 1. **声明**：Host 注册 `NewProcess(ProcessOptions)`；child 用 `ServeUnit` 声明 Identity 和 Unit。
-2. **固定依赖**：激活时通过 Host Scope.Get 解析 Imports，先登记清理，再启动程序。StartupTimeout 从导入校验前开始。
+2. **固定依赖**：激活时通过 Host Scope.Get 解析普通 Imports，通过 LocalImports 取得私有回调，先登记清理，再启动程序。StartupTimeout 从导入校验前开始。
 3. **发现与校验**：Describe 返回身份、完整 Boundary 和 ConfigSchema；Host 对照 ChildBoundary 检查契约名、版本、方向及身份，编译本次 Schema，在安装回调和 Initialize 前校验程序配置。此时尚未构造或激活业务实例。
 4. **初始化**：有 Imports 才安装 Broker 回调服务。Initialize 携带 Session 与程序配置。child 在 Unit 声明校验后独立校验输入，调用 New、严格解码和 Configure，将所有覆盖暂存到独立实例副本，全部成功后才通过 Gordis ChangeSet 准备、装配并等待本地实例 Ready，解析、验证和固定导出。
 5. **发布与监视**：`NewProcess` 一次性构造并检查全部 export client，再将这些相同实例通过 Scope.Provide 发布。Attach 在远端 Ready 后运行可选 Accept，并安装受 Scope 管理的 Watch。
@@ -52,13 +52,15 @@ Unit 声明校验（包括实例 ID 唯一性）在配置方法之前完成。�
 
 普通服务使用 `NewProcess`，由库完成 Requires/Provides 和代理发布。只有需要领域贡献注册等适配逻辑时，才直接使用 `Attach(ctx, scope, options)` 与 Accept。
 
-直接 Attach 的 Host Plugin 必须在 Requires 中包含 `RequiredServices(options.ChildBoundary.Imports)`。Attach 从 Scope 获取依赖，保障回调 provider 的生命周期；不接受任意传入的 Host 服务对象。它不自动发布 Exports：用 `ExportClient(session, key)` 取得代理，再显式 Provide 或注册领域贡献。
+直接 Attach 的 Host Plugin 必须在 Requires 中声明普通 Imports。Attach 通过 Scope.Get 解析这些依赖，保障回调 provider 的生命周期。adapter 自己持有的激活期私有回调可以用 `BindLocalImport` 和 `AttachOptions.LocalImports` 注入；它们仍须匹配 ChildBoundary.Imports，不能绕过外部服务依赖。
+
+Attach 不自动发布 Exports。Accept 中用 `session.PrepareExports()` 和 `PreparedClient(prepared, key)` 检查已准备的客户端，再通过 `prepared.Provide(scope)` 发布同一批对象，或用 `prepared.ProvideServices(scope, services...)` 发布显式子集。客户端也可保持私有，用于领域贡献注册。低层 `ExportClient(session, key)` 每次调用 factory，不发布服务；需要保持对象身份时使用 PreparedClient。详见[私有回调与导出发布](bindings.zh.md#领域-adapter-的私有回调与导出发布)。
 
 ## 调用与取消
 
 每次 Attach 生成随机 Session ID，并绑定 Host 实例与 generation。Invoker 限定一个契约和一个 Session；ExportClient 只接受已声明且 Go 类型匹配的导出。
 
-导出请求持有 Scope 的 Ready lease，即调用期间阻止相应服务完成释放。取消传给 handler，lease 等实际 handler 返回后才释放。server-stream 同步发送 chunk，库不建立生产队列；消费者提前停止会取消远端流。业务并发预算由领域层负责。
+导出请求持有 Scope 的 Ready lease，即调用期间阻止相应服务完成释放。取消传给 handler，lease 等实际 handler 返回后才释放。server-stream 同步发送 chunk，库不建立生产队列；消费者提前停止会取消远端流。RPC 为每个 Session 的两端提供独立的出站 Pending 和入站 Handling 预算；领域层仍负责订阅、token 等领域资源限制。普通 unary 和 stream 共用 Business 额度；并发额度字段 0 表示不限，正数为上限，负数无效。应用按负载显式选择上限，有限额度超额立即拒绝。不限额度仍统计实际工作并等待停止排空。Host 与 Child 分别配置自己的 Limits。详见[即时准入](bindings.zh.md#即时准入)。
 
 协议标识为 `gordis-rpc/1`。控制消息与领域 DTO 以 JSON 经 protobuf BytesValue 传输，调用使用 gRPC unary/server-stream。transport 握手版本仍为 1。Host/child 须同步重建，不支持旧配置载荷混用。wire Go 类型与 RPC 路径是私有实现；生成 Binding 的数据格式另见 [Binding 文档](bindings.zh.md)。
 
@@ -74,6 +76,11 @@ Watch 将 child 节点失败或意外终止反馈给 Host。主连接丢失或�
 | --- | --- |
 | Ready | 远端曾就绪；正常回收后会清除，不能代替实时健康检查 |
 | Nodes | 初始化成功时的节点快照，不是持续更新的节点状态 |
+| Admission | 当前 Host 端各类别的出站 Pending 与入站 Handling 计数 |
+| CallbackHandling | 实际尚未退出的 callback 数；入口开放时为零只表示空闲 |
+| CallbacksClosed | callback 入口已关闭 |
+| CallbacksDrained | callback 入口已关闭，且实际 handler 已全部退出 |
+| CallbackTransportClosed | callback transport 关闭已完成 |
 | Reaped | 进程已回收，不表示业务清理成功 |
 | Cleanup | 查看 CleanupComplete、Forced 和 Errors，判断实际清理结果 |
 

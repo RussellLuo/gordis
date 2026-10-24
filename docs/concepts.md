@@ -200,11 +200,10 @@ ordinary Go interfaces can use generated Bindings. See
 proxies. An RPC Unit has its own Host; Host services cross its boundary through
 declared Imports and fixed `Get` bindings, with no cross-process dynamic lookup.
 
-The older `processbridge` creates a detached child Scope without a child Host.
-That Scope returns `ErrLookupUnsupported` for Lookup while retaining declared
-`Get` bindings. This stdio implementation still supports cross-process events
-and the application-plugin example; see the
-[legacy protocol](process-protocol.md).
+Cross-process events use [rpc/events](../rpc/events/README.md). The detached
+Scope of the removed stdio adapter is described only in the
+[historical protocol](process-protocol.md); its Lookup/Env restrictions do not
+apply to the Unit's local Host.
 
 ## Boundaries
 

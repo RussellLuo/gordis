@@ -68,7 +68,7 @@ func TestLocalProcessParityAndCleanup(t *testing.T) {
 	defer cancel()
 	binary := filepath.Join(t.TempDir(), "plugin")
 	cmd := exec.CommandContext(ctx, "go", "build", "-mod=readonly", "-race", "-o", binary, "./plugin/cmd")
-	cmd.Env = append(os.Environ(), "GOWORK=off")
+	cmd.Env = os.Environ()
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build child: %v\n%s", err, output)
 	}

@@ -310,8 +310,10 @@ provide cross-process dynamic lookup or management of the external Host graph.
 Unit assembly is currently a closed static graph; see
 [RPC Concepts](../rpc/docs/concepts.md).
 
-Cross-process EventBus integration is not yet implemented in RPC. The existing
-[process-events](../examples/process-events/README.md) and
-[application-plugin](../examples/application-plugin/README.md) examples still
-use `processbridge.Adapter/Serve`. Their event codecs, detached Scope, and
-protocol are described in the [legacy stdio protocol](process-protocol.md).
+Cross-process events use [rpc/events](../rpc/events/README.md): ordinary plugins
+keep On/Publish/Emit and Hook APIs, while assembly declares codecs and allowed
+directions. Follow the [bidirectional events example](../rpc/examples/events/README.md),
+which waits for Request dispatch and its nested Notice delivery before shutdown.
+The old stdio adapter and application-plugin example have been removed.
+Package installation, version upgrades, UI activation and manifest validation
+were retired with that application; RPC does not provide replacement package APIs.

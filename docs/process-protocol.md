@@ -2,15 +2,16 @@
 
 English | [中文](process-protocol.zh.md)
 
-This page describes the older `process`/`processbridge` implementation, still
-used by [process-events](../examples/process-events/README.md) and
-[application-plugin](../examples/application-plugin/README.md). For ordinary
-Service plugins, use the [RPC module](../rpc/README.md) and its
-[examples](../rpc/examples/README.md). The two protocols are incompatible.
+Historical reference: Gordis removed `process`, `processbridge` (including
+`processtest`), `process.LoadPackage/Manifest/Package`, and application-plugin.
+The APIs and snippets below describe that removed implementation.
+For Service and event plugins, use the [RPC module](../rpc/README.md) and its
+[examples](../rpc/examples/README.md). The protocols are incompatible; rebuild both
+ends. Package delivery and UI scenarios were retired, not migrated to RPC.
 
 `process` supervises trusted local child processes and provides bidirectional JSON RPC over stdio. Both the Host and plugin may initiate calls. The application owns business methods, DTOs, and authorization; Go objects, Scopes, and service Keys never cross the process boundary.
 
-The current protocol identifier is `gordis/process/1`, and both peers must match it exactly. An incompatible change requires a new protocol identifier and rebuilt Host, plugin, and manifest artifacts.
+The historical protocol identifier was `gordis/process/1`, and both peers must match it exactly. An incompatible change requires a new protocol identifier and rebuilt Host, plugin, and manifest artifacts.
 
 Protocol and capability namespaces use `/` separators. The former dotted identifiers are not accepted as aliases; rebuild Host and plugin binaries together and regenerate package manifests when adopting these names.
 
@@ -58,13 +59,9 @@ Host Client.Call
 Initialization may call the Host, and a handler may make a nested call to its
 peer, but applications must avoid recursive calls and wait cycles.
 
-Concrete executable coverage includes:
-
-- [the child `Serve` and `Caller` handler](../process/client_test.go#L97-L124);
-- [`TestDuplexInitializationNestedCallsAndCorrelation`](../process/duplex_test.go#L32-L64),
-  covering nested calls, concurrency, and request correlation;
-- [`TestPluginLifecycleConsistency`](../processbridge/execution_test.go#L242-L369),
-  covering typed `Requires + Provides`, lifecycle, and cleanup.
+Current service calls, callbacks and cleanup are covered by the
+[RPC tests](../rpc/process_test.go); cross-process events are covered by
+[RPC events tests](../rpc/events/bridge_test.go).
 
 ## Wire protocol
 

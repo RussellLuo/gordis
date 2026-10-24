@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 
@@ -22,7 +21,10 @@ type ProcessOptions struct {
 	// are services the child needs from the Host; Exports are services it
 	// provides to the Host. It must match the child's Unit.Boundary().
 	ChildBoundary Boundary
-	Limits        Limits
+	// Limits configures the Host peer of every Session created by this plugin.
+	// Zero admission fields are unlimited. Child limits are configured separately
+	// in ServeUnitOptions; see Limits for counting scope and timeout semantics.
+	Limits Limits
 }
 
 // ProcessPlugin publishes all declared child exports as ordinary Gordis
@@ -46,6 +48,9 @@ func NewProcess(options ProcessOptions) (*ProcessPlugin, error) {
 		if err := options.Identity.validate(); err != nil {
 			return nil, err
 		}
+	}
+	if err := options.Limits.validate(); err != nil {
+		return nil, err
 	}
 	if _, err := declarations(options.ChildBoundary); err != nil {
 		return nil, err
@@ -86,20 +91,11 @@ func (p *ProcessPlugin) Activate(ctx context.Context, scope *gordis.Scope) error
 		Command: p.options.Command, Identity: p.options.Identity,
 		ChildBoundary: p.options.ChildBoundary, Limits: p.options.Limits, Config: p.config,
 		Accept: func(_ context.Context, session *Session) error {
-			publish := make([]func(*gordis.Scope) error, 0, len(p.options.ChildBoundary.Exports))
-			for _, binding := range p.options.ChildBoundary.Exports {
-				provide, err := binding.prepare(session.invoker(binding))
-				if err != nil {
-					return fmt.Errorf("prepare %s: %w", binding.Spec().Name(), err)
-				}
-				publish = append(publish, provide)
+			prepared, err := session.PrepareExports()
+			if err != nil {
+				return err
 			}
-			for i, provide := range publish {
-				if err := provide(scope); err != nil {
-					return fmt.Errorf("provide %s: %w", p.options.ChildBoundary.Exports[i].Spec().Name(), err)
-				}
-			}
-			return nil
+			return prepared.Provide(scope)
 		},
 	})
 	p.mu.Lock()

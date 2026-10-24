@@ -68,7 +68,10 @@ func (p *Plugin) Call(ctx context.Context, input string) (string, error) {
 	// A test barrier keeps the actual child handler alive after cancellation.
 	// Cleanup must wait for its Ready lease, not just the cancelled RPC client.
 	if input == "hold-handler" && p.callback != nil {
-		if _, err := p.callback.Call(ctx, "handler-enter"); err != nil {
+		// The Host can stop as soon as it observes handler-enter, before this
+		// callback response arrives. Finish the barrier handshake independently
+		// so cancellation cannot skip the handler-cancelled/exit evidence.
+		if _, err := p.callback.Call(context.WithoutCancel(ctx), "handler-enter"); err != nil {
 			return "", err
 		}
 		<-ctx.Done()

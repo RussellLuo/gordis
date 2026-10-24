@@ -70,7 +70,7 @@ greeter: Hello, Gordis!
 ## 示例
 
 从 [basic](examples/basic/README.zh.md) 开始了解类型化 Service、配置和实例挂载。完整的事件、
-隔离、所有权、就绪、动态变更、进程插件与应用集成示例见[示例指南](examples/README.zh.md)。
+隔离、所有权、就绪、动态变更与进程插件示例见[示例指南](examples/README.zh.md)。
 
 ## 可选扩展
 
@@ -78,7 +78,7 @@ greeter: Hello, Gordis!
   见[事件示例](examples/events/README.zh.md)。
 - **RPC**：[`github.com/RussellLuo/gordis/rpc` 模块](rpc/README.zh.md)让插件在受信任的
   本地子进程中运行，需要进程执行时再引入；消费者仍通过类型化服务调用。
-  [RPC 示例](rpc/examples/README.zh.md)按 `basic → duplex → stream` 阅读。
+  [RPC 示例](rpc/examples/README.zh.md)按 `basic → duplex → stream → events` 阅读。
 
 ## 文档
 
@@ -87,19 +87,19 @@ greeter: Hello, Gordis!
 - [生命周期](docs/lifecycle.zh.md)：启动、排空、失败传播与诊断参考。
 - [动态实例管理](docs/dynamic.zh.md)：单实例操作、批量变更、等待与恢复。
 - [RPC 架构与生命周期](rpc/docs/architecture.zh.md)：进程启动、服务调用、回调与清理。
-- [旧 stdio 进程协议](docs/process-protocol.zh.md)：进程事件与 application-plugin 示例仍使用的
-  `process`/`processbridge` 实现。
+- [旧 stdio 进程协议](docs/process-protocol.zh.md)：已移除实现的历史说明及迁移索引。
 
 ## 能力边界
 
 Gordis 核心只管理 Go 插件图、类型化服务和生命周期。HTTP、UI、Agent、插件包分发和
 持久化属于应用层职责。
 
-普通 Service 在受信任的本地子进程中运行时使用 RPC 模块。旧 `process`/`processbridge`
-stdio 传输仍用于跨进程事件与 application-plugin 示例。两套协议不兼容，迁移时需要重新构建
-Host 和插件程序。
+普通 Service 在受信任的本地子进程中运行时使用 RPC 模块，跨进程事件使用其
+[events 桥](rpc/events/README.zh.md)。旧 `process`、`processbridge` 和
+application-plugin 示例及其包加载器已删除；独立发行依赖验证仍待完成。
+从旧 stdio 协议迁移须同步重建 Host 与子进程；RPC 不提供 manifest/包管理器。
 
-进程执行不构成不可信代码沙箱。两套传输均不提供远程发现、鉴权、断线重连或强制终止 goroutine。
+进程执行不构成不可信代码沙箱。RPC 不提供远程发现、鉴权、断线重连或强制终止 goroutine。
 
 ## 致谢
 

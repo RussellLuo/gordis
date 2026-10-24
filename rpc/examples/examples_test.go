@@ -20,7 +20,7 @@ func TestBasic(t *testing.T) {
 	host, child := filepath.Join(directory, "host"), filepath.Join(directory, "plugin")
 	for path, pkg := range map[string]string{host: "./basic/host/cmd", child: "./basic/plugin/cmd"} {
 		cmd := exec.CommandContext(ctx, "go", "build", "-mod=readonly", "-race", "-o", path, pkg)
-		cmd.Env = append(os.Environ(), "GOWORK=off")
+		cmd.Env = os.Environ()
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("build %s: %v\n%s", pkg, err, output)
 		}
@@ -79,7 +79,7 @@ func TestDuplex(t *testing.T) {
 	host, child := filepath.Join(directory, "host"), filepath.Join(directory, "plugin")
 	for path, pkg := range map[string]string{host: "./duplex/host/cmd", child: "./duplex/plugin/cmd"} {
 		cmd := exec.CommandContext(ctx, "go", "build", "-mod=readonly", "-race", "-o", path, pkg)
-		cmd.Env = append(os.Environ(), "GOWORK=off")
+		cmd.Env = os.Environ()
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("build %s: %v\n%s", pkg, err, output)
 		}
@@ -107,7 +107,7 @@ func TestStream(t *testing.T) {
 	host, child := filepath.Join(directory, "host"), filepath.Join(directory, "plugin")
 	for path, pkg := range map[string]string{host: "./stream/host/cmd", child: "./stream/plugin/cmd"} {
 		cmd := exec.CommandContext(ctx, "go", "build", "-mod=readonly", "-race", "-o", path, pkg)
-		cmd.Env = append(os.Environ(), "GOWORK=off")
+		cmd.Env = os.Environ()
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("build %s: %v\n%s", pkg, err, output)
 		}
@@ -129,6 +129,34 @@ func TestStream(t *testing.T) {
 	})
 }
 
+func TestEvents(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	directory := t.TempDir()
+	host, child := filepath.Join(directory, "host"), filepath.Join(directory, "plugin")
+	for path, pkg := range map[string]string{host: "./events/host/cmd", child: "./events/plugin/cmd"} {
+		cmd := exec.CommandContext(ctx, "go", "build", "-mod=readonly", "-race", "-o", path, pkg)
+		cmd.Env = os.Environ()
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("build %s: %v\n%s", pkg, err, output)
+		}
+	}
+	callCtx, stop := context.WithTimeout(ctx, 20*time.Second)
+	defer stop()
+	cmd := exec.CommandContext(callCtx, host, child)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Host/child: %v\n%s", err, stderr.String())
+	}
+	if want := "received notice: hello\n"; stdout.String() != want {
+		t.Fatalf("round-trip output: got %q, want %q", stdout.String(), want)
+	}
+	t.Run("production-dependencies", func(t *testing.T) {
+		auditDependencies(t, ctx, "events")
+	})
+}
+
 func auditDependencies(t *testing.T, ctx context.Context, name string) {
 	t.Helper()
 	const module = "github.com/RussellLuo/gordis/rpc"
@@ -136,7 +164,7 @@ func auditDependencies(t *testing.T, ctx context.Context, name string) {
 	for _, part := range []string{"host/cmd", "plugin/cmd", "host", "plugin", "bindings", "contract"} {
 		pkg := name + "/" + part
 		cmd := exec.CommandContext(ctx, "go", "list", "-mod=readonly", "-deps", "./"+pkg)
-		cmd.Env = append(os.Environ(), "GOWORK=off")
+		cmd.Env = os.Environ()
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("audit %s: %v\n%s", pkg, err, output)

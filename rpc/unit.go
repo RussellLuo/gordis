@@ -36,6 +36,10 @@ func (u Unit) Boundary() Boundary {
 	}
 	return b
 }
+
+// Validate checks a closed assembly without configuring or activating it.
+// Optional adapters use the same checks as ServeUnit after adding services.
+func (u Unit) Validate() error { return u.validate() }
 func (u Unit) validate() error {
 	if _, e := declarations(u.Boundary()); e != nil {
 		return e
@@ -46,6 +50,9 @@ func (u Unit) validate() error {
 			return errors.New("nil unit plugin")
 		}
 		s := p.Spec()
+		if _, exists := specs[s.ID]; exists {
+			return fmt.Errorf("duplicate plugin ID %s", s.ID)
+		}
 		if s.ID == "rpc/imports" || s.ID == "rpc/exports" {
 			return errors.New("reserved plugin ID")
 		}
@@ -128,7 +135,8 @@ type exportProvider struct {
 }
 type boundHandler struct {
 	Handler
-	scope *gordis.Scope
+	scope   *gordis.Scope
+	classes map[string]AdmissionClass
 }
 
 func (provider *exportProvider) Spec() gordis.PluginSpec {
@@ -151,7 +159,7 @@ func (provider *exportProvider) Activate(ctx context.Context, scope *gordis.Scop
 		if len(handler.Methods)+len(handler.Streams) == 0 {
 			return errors.New("empty export handler")
 		}
-		provider.handlers[binding.Spec().Name()] = boundHandler{handler, scope}
+		provider.handlers[binding.Spec().Name()] = boundHandler{Handler: handler, scope: scope, classes: binding.classes}
 	}
 	return nil
 }

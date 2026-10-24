@@ -180,9 +180,9 @@ consumer 继续使用普通接口。Host 声明子进程 Boundary；子进程通
 `Lookup` 只查询调用方本地 Host 的 View，其中可以包含类型化代理。RPC Unit 拥有自己的
 Host；外部 Host 服务通过显式 Imports 和固定 `Get` 绑定进入 Unit，没有跨进程动态查询协议。
 
-旧 `processbridge` 为子进程创建不带 Host 的 detached Scope，该 Scope 的 Lookup 返回
-`ErrLookupUnsupported`，已声明的 `Get` 固定绑定仍受支持。这套 stdio 实现仍用于跨进程
-事件与 application-plugin 示例，详见[旧进程协议](process-protocol.zh.md)。
+跨进程事件使用 [rpc/events](../rpc/events/README.zh.md)。已删除 stdio adapter 的 detached
+Scope 只保留在[历史协议说明](process-protocol.zh.md)中，其 Lookup/Env 限制不适用于 Unit
+内部的本地 Host。
 
 ## 边界
 

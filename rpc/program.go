@@ -59,6 +59,9 @@ func DescribeProgram(ctx context.Context, command Command, limits Limits) (Progr
 	if command.Path == "" {
 		return ProgramDescription{}, errors.New("empty command")
 	}
+	if err := limits.validate(); err != nil {
+		return ProgramDescription{}, err
+	}
 	limits = limits.defaults()
 	ctx, cancel := context.WithTimeout(ctx, limits.StartupTimeout)
 	defer cancel()

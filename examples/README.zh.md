@@ -23,10 +23,4 @@
 | --- | --- |
 | [events](events/README.zh.md) | 类型化 Topic 的订阅与发布 |
 | [RPC](../rpc/examples/README.zh.md) | 类型化远端 Service、嵌套回调和流式结果 |
-| [process events](process-events/README.zh.md) | 由外部进程发布的类型化 Topic |
-
-## 应用集成
-
-| 示例 | 重点 |
-| --- | --- |
-| [application plugin](application-plugin/README.zh.md) | 由应用管理、包含进程后端和 UI 的包 Loader |
+| [RPC events](../rpc/examples/events/README.zh.md) | Host Request、Child Notice 与完整往返等待 |

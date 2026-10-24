@@ -26,8 +26,15 @@ type Handler struct {
 	Streams map[string]Stream
 }
 type Codec[T any] struct {
-	Client func(Invoker) T
-	Server func(T) Handler
+	// MethodClasses assigns unary methods to independent admission budgets in
+	// Limits. NewBinding copies the map; nil/unlisted entries use Business and
+	// streams must use Business. Both peers classify locally; requests cannot
+	// select a class. A class change requires a new Binding version.
+	// Control handlers must perform bounded management work without user business
+	// execution; Continuation requires adapter-validated existing invocation work.
+	MethodClasses map[string]AdmissionClass
+	Client        func(Invoker) T
+	Server        func(T) Handler
 	// Validate checks an export after every necessary local instance is Ready.
 	// It must honor initialization cancellation; Host imports use the startup
 	// context too, before acquiring a process.
@@ -39,14 +46,20 @@ type Codec[T any] struct {
 type Binding struct {
 	spec    gordis.ServiceSpec
 	version string
+	classes map[string]AdmissionClass
 	client  func(Invoker) any
 	resolve func(context.Context, *gordis.Scope) (Handler, error)
 	provide func(*gordis.Scope, Invoker) error
-	prepare func(Invoker) (func(*gordis.Scope) error, error)
+	local   func(context.Context, any) (Handler, error)
+	publish func(*gordis.Scope, any) error
+	check   func(any) bool
 }
 
 func NewBinding[T any](key gordis.Key[T], version string, codec Codec[T]) Binding {
-	binding := Binding{spec: key.Spec(), version: version}
+	binding := Binding{spec: key.Spec(), version: version, classes: make(map[string]AdmissionClass, len(codec.MethodClasses))}
+	for method, class := range codec.MethodClasses {
+		binding.classes[method] = class
+	}
 	if codec.Client == nil || codec.Server == nil {
 		return binding
 	}
@@ -61,22 +74,34 @@ func NewBinding[T any](key gordis.Key[T], version string, codec Codec[T]) Bindin
 				return Handler{}, err
 			}
 		}
-		return codec.Server(service), nil
+		return binding.handler(codec.Server(service))
 	}
-	binding.prepare = func(invoker Invoker) (func(*gordis.Scope) error, error) {
-		client := codec.Client(invoker)
-		if nilValue(client) {
-			return nil, errors.New("invalid contract client")
+	binding.check = func(value any) bool { _, ok := value.(T); return ok && !nilValue(value) }
+	binding.local = func(ctx context.Context, value any) (Handler, error) {
+		service, ok := value.(T)
+		if !ok || nilValue(service) {
+			return Handler{}, errors.New("rpc: invalid local import value")
 		}
-		return func(scope *gordis.Scope) error { return scope.Provide(key, client) }, nil
+		if codec.Validate != nil {
+			if err := codec.Validate(ctx, service); err != nil {
+				return Handler{}, err
+			}
+		}
+		return binding.handler(codec.Server(service))
 	}
+	binding.publish = func(scope *gordis.Scope, value any) error { return scope.Provide(key, value.(T)) }
 	binding.provide = func(scope *gordis.Scope, invoker Invoker) error { return scope.Provide(key, codec.Client(invoker)) }
 	return binding
 }
 func (b Binding) Spec() gordis.ServiceSpec { return b.spec }
 func (b Binding) Version() string          { return b.version }
 func (b Binding) valid() error {
-	if b.spec.Name() == "" || b.version == "" || b.client == nil || b.resolve == nil || b.provide == nil || b.prepare == nil {
+	for method, class := range b.classes {
+		if method == "" || class > Continuation {
+			return errors.New("rpc: invalid method admission class")
+		}
+	}
+	if b.spec.Name() == "" || b.version == "" || b.client == nil || b.resolve == nil || b.provide == nil || b.local == nil || b.publish == nil || b.check == nil {
 		return errors.New("rpc: incomplete binding")
 	}
 	return nil
@@ -121,6 +146,11 @@ func RequiredServices(bindings []Binding) []gordis.ServiceSpec {
 	}
 	return out
 }
+
+// ExportClient constructs a client for one declared export without publishing it.
+// Each call invokes the client factory; object identity is not guaranteed.
+// Adapters that validate and publish the same objects should use PrepareExports
+// and PreparedClient instead.
 func ExportClient[T any](s *Session, key gordis.Key[T]) (T, error) {
 	var zero T
 	if s == nil || s.remote == nil {
@@ -147,4 +177,23 @@ func nilValue(v any) bool {
 		return r.IsNil()
 	}
 	return false
+}
+
+// LocalImport supplies a private, activation-owned callback without a Scope
+// provider. Construct it during Activate; the complete boundary still applies.
+type LocalImport struct {
+	binding Binding
+	value   any
+}
+
+// BindLocalImport validates a value against the Binding's captured Go type.
+// Attach also checks the complete boundary and uses its codec and validator.
+func BindLocalImport[T any](binding Binding, value T) (LocalImport, error) {
+	if err := binding.valid(); err != nil {
+		return LocalImport{}, err
+	}
+	if !binding.check(value) {
+		return LocalImport{}, errors.New("rpc: invalid local import value")
+	}
+	return LocalImport{binding: binding, value: value}, nil
 }

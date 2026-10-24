@@ -77,8 +77,7 @@ instances when the program exits.
 
 Start with [basic](examples/basic/README.md) for typed services, configuration,
 and instance mounting. See the [examples guide](examples/README.md) for
-events, isolation, ownership, readiness, dynamic changes, process plugins, and
-application integration.
+events, isolation, ownership, readiness, dynamic changes, and process plugins.
 
 ## Optional extensions
 
@@ -87,7 +86,7 @@ application integration.
 - **RPC**: the [`github.com/RussellLuo/gordis/rpc` module](rpc/README.md) runs
   plugins in trusted local child processes. Add it when you need process
   execution; consumers keep using typed services. Follow the
-  [RPC examples](rpc/examples/README.md): `basic`, `duplex`, then `stream`.
+  [RPC examples](rpc/examples/README.md): `basic`, `duplex`, `stream`, then `events`.
 
 ## Documentation
 
@@ -101,23 +100,23 @@ application integration.
   bulk changes, waiting, and recovery.
 - [RPC Architecture and Lifecycle](rpc/docs/architecture.md): process startup,
   service calls, callbacks, and cleanup.
-- [Legacy stdio Process Protocol](docs/process-protocol.md): the
-  `process`/`processbridge` implementation still used by process events and the
-  application-plugin example.
+- [Legacy stdio Process Protocol](docs/process-protocol.md): historical reference
+  for the removed implementation and its migration index.
 
 ## Scope
 
 Gordis core manages the Go plugin graph, typed services, and lifecycle. HTTP,
 UI, agents, package distribution, and persistence are application concerns.
 
-Use the RPC module for ordinary Services in trusted local child processes.
-The older `process`/`processbridge` stdio transport remains for cross-process
-events and the application-plugin example. The two protocols are incompatible;
-migrating requires rebuilding both Host and plugin programs.
+Use the RPC module for ordinary Services and its [events bridge](rpc/events/README.md)
+for events in trusted local child processes. The legacy `process`,
+`processbridge`, and application-plugin example, including its package loader,
+have been removed. Standalone release dependency validation remains pending.
+Migrating from the old stdio protocol requires rebuilding Host and child programs;
+RPC supplies no manifest/package manager.
 
-Process execution does not provide a sandbox for untrusted code. Neither
-transport provides remote discovery, authentication, reconnection, or forced
-goroutine termination.
+Process execution does not provide a sandbox for untrusted code. RPC does not
+provide remote discovery, authentication, reconnection, or forced goroutine termination.
 
 ## Acknowledgements
 

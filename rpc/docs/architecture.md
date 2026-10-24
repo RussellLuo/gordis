@@ -28,9 +28,9 @@ flowchart LR
 | gordis-rpc | Program configuration declaration, discovery, strict decoding and instance mapping; Unit assembly, boundary checks, Session, readiness and cleanup coordination |
 | go-plugin / gRPC | Process startup, base handshake, connections, Broker and RPC transport |
 
-The runtime imports neither Qi nor legacy `gordis/process` or `processbridge`. Tool, model and prompt rules belong to their domain adapters. Programs are trusted and local; process isolation is not an untrusted-code sandbox.
+Tool, model and prompt rules belong to their domain adapters. Programs are trusted and local; process isolation is not an untrusted-code sandbox. The runtime provides no remote discovery, authentication, reconnection, or forced termination of Go goroutines.
 
-The jsonschema-go fork generates and resolves configuration Schema and validates input. gordis-rpc adapts those operations without exposing third-party types in its public API. Qi's tool adapter passes `ServerOptions.Config` to Unit and offers `ConfigForTool(value)` to hide its private tool instance ID. The runtime has no dependency on that adapter. See [configuration declarations](concepts.md#declare-program-configuration) for author rules.
+The jsonschema-go fork generates and resolves configuration Schema and validates input. gordis-rpc adapts those operations without exposing third-party types in its public API. See [configuration declarations](concepts.md#declare-program-configuration) for author rules.
 
 ## Startup: business readiness follows process startup
 
@@ -62,7 +62,7 @@ Each Attach generates a random Session ID tied to the Host instance and generati
 
 Export requests hold a Scope Ready lease, preventing service release while the call is active. Cancellation reaches the handler; the lease is released only when the actual handler returns. Server streams send chunks synchronously without a runtime production queue. Stopping consumption cancels the remote stream. RPC provides independent outbound Pending and inbound Handling budgets on each side of each Session; domain layers remain responsible for resources such as subscriptions and tokens. Ordinary unary and stream methods share Business admission. Zero admission fields mean unlimited, positive values set caps, and negative values are invalid. Applications explicitly choose their capacities; finite caps reject excess calls immediately. Unlimited work is still counted and drained during shutdown. Host and child configure their own Limits. See [immediate admission](bindings.md#immediate-admission).
 
-The protocol is `gordis-rpc/1`. Control messages and domain DTOs use JSON carried by protobuf BytesValue over gRPC unary/server-stream calls. The transport handshake remains version 1. Rebuild Host and child together; older configuration payloads are not compatible. Wire Go types and RPC paths are private. See [Bindings](bindings.md) for the generated payload format.
+The protocol is `gordis-rpc/1`, with transport handshake version 1. Control messages and domain DTOs use JSON carried by protobuf BytesValue over gRPC unary/server-stream calls. Rebuild Host and child together when changing the protocol. Wire Go types and RPC paths are private. See [Bindings](bindings.md) for the generated payload format.
 
 ## Shutdown and failure
 

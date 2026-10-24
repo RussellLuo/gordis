@@ -10,7 +10,6 @@ Host Emit(Request) → Child On(Request)
 Host 等待 Request 返回 → Shutdown
 ```
 
-本例替代旧 `examples/process-events`，在原 Child→Host Notice 基础上增加 Host 请求。
 两端业务 Plugin 继续使用普通 Gordis events API。
 
 ## 运行

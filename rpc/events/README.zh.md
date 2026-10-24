@@ -75,7 +75,7 @@ rpcevents.BindHook(Transform,
 
 所有 *From 继续由 Host 判断 Topic/来源 View。Child 来源须由实际调用 Scope 提供，并由该 Instance 在 Unit.Exports 显式导出；Host 独立限制为普通 Boundary.Exports，恢复准确 ServiceSpec，再检查 loader.HasProvided。Child 内部未导出服务、另一 owner 的导出不能成为来源地址；Global 绕过来源过滤，但不绕过 Topic 分区。
 
-私有协议为 `2:<registry-digest>`，两端须同步重建。[双向事件示例](../examples/events/README.zh.md) 已替代旧 process-events 示例；旧进程库、application-plugin 及包交付 API 已删除。
+私有协议为 `2:<registry-digest>`，两端须同步重建。可运行的 Host 与子进程装配见[双向事件示例](../examples/events/README.zh.md)。
 
 ## 源码验证
 

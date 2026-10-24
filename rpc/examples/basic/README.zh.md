@@ -92,9 +92,8 @@ GOWORK=off go run github.com/RussellLuo/gordis/rpc/cmd/rpcgen -type Greeter -key
 `rpc` 引用运行库，内部实现名为 `greeterClient`、`newGreeterHandler`。作者只维护普通代码
 与程序装配，无需手写 RPC adapter。
 
-Binding 版本为 `rpcgen.json/1:1`，使用严格的按位置 `args` 请求和 `value` 响应，
-替换 EX01 的手写 wire。本次早期重构保持程序与契约版本均为 `1`，Host 与插件程序
-必须一起重建。
+Binding 版本为 `rpcgen.json/1:1`，使用严格的按位置 `args` 请求和 `value` 响应。
+修改契约时，须更新生成的 Binding，并重建 Host 与插件程序。
 
 ## 验证
 

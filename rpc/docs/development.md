@@ -46,24 +46,3 @@ This is an independent module in the Gordis repository at `rpc/`, with module pa
 The pinned Core version does not yet include the new events cooperation APIs. Before independent release, pin go.mod to a real Core version containing them and rerun complete checks with `GOWORK=off`; workspace verification does not establish release dependency compatibility.
 
 Local verification has covered darwin/arm64. Normal version builds, standalone release dependencies and other platforms need separate verification. Update Host, child and generated code together when changing unpublished APIs or protocols.
-
-Protocol remains `gordis-rpc/1` with transport handshake version 1; this does not allow mixing binaries built before and after the configuration payload change. ConfigTarget, ConfigMode, ProcessConfigMode, ForwardConfig and NoConfig have been removed. Declare configured programs with Unit.Config/NewConfig/Configure and unconfigured programs with ConfigSpec's zero value. The [stream example](../examples/stream/README.md) is available; the Unit recipe remains a later stage.
-
-## Downstream integration: Qi
-
-These checks apply when changing the Qi adapter or validating an RPC change
-against Qi. They are separate from this module's own checks; run them from the
-Qi repository root with its workspace enabled:
-
-```sh
-go test -race -count=1 -timeout=180s ./builtin/tools/process/... ./builtin/bundle ./builtin/examples/tool-process/...
-go test -race ./kernel/boot/...
-```
-
-Qi development maps RPC to the adjacent Gordis checkout (`../gordis/rpc`);
-qi-build receives that source mapping explicitly. Its workspaces and integration
-probes use the same pinned jsonschema-go dependency.
-
-These checks cover tool semantics, process cleanup, default registration and
-Profile path preparation. External real-model flows need separate validation;
-RPC does not replace Qi's LLM/prompt domain adapters.

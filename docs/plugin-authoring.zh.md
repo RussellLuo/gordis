@@ -276,5 +276,3 @@ consumer 继续依赖同一个 `Key[T]`；process Plugin 在远端 Ready 后发�
 跨进程事件使用 [rpc/events](../rpc/events/README.zh.md)：普通 Plugin 保持 On/Publish/Emit
 和 Hook API，装配层声明 codec 与方向。参见[双向事件示例](../rpc/examples/events/README.zh.md)，
 停止前等待 Request 派发及其嵌套 Notice 投递完成。
-旧 stdio adapter 与 application-plugin 示例已删除。包安装、版本升级、UI 激活与
-manifest 校验随应用退役；RPC 不提供替代包管理 API。

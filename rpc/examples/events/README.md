@@ -10,8 +10,7 @@ Host Emit(Request) → Child On(Request)
 Host waits for Request to return → Shutdown
 ```
 
-This replaces the old `examples/process-events` example, adding a Host request
-to its Child-to-Host Notice. Business plugins use ordinary Gordis events APIs.
+Business plugins use ordinary Gordis events APIs.
 
 ## Run
 

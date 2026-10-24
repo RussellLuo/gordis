@@ -28,9 +28,9 @@ flowchart LR
 | gordis-rpc | 程序配置声明、发现、严格解码与实例映射；Unit 装配、边界校验、Session、就绪与清理协调 |
 | go-plugin / gRPC | 进程启动、基础握手、连接、Broker 和 RPC 传输 |
 
-底座不依赖 Qi 或旧 `gordis/process`、`processbridge`。工具、模型和 prompt 的业务规则由各自适配层持有。运行对象是可信的本地程序，进程隔离不构成不可信代码沙箱。
+工具、模型和 prompt 的业务规则由各自适配层持有。运行对象是可信的本地程序，进程隔离不构成不可信代码沙箱。运行库不提供远程发现、鉴权、断线重连或强制终止 goroutine。
 
-jsonschema-go fork 负责配置 Schema 生成、解析及输入校验；gordis-rpc 适配这些操作，公开 API 不暴露第三方类型。Qi 工具适配层把 `ServerOptions.Config` 交给 Unit，通过 `ConfigForTool(value)` 隐藏私有工具实例 ID；底座不依赖该适配层。作者规则见[配置声明](concepts.zh.md#声明程序配置)。
+jsonschema-go fork 负责配置 Schema 生成、解析及输入校验；gordis-rpc 适配这些操作，公开 API 不暴露第三方类型。作者规则见[配置声明](concepts.zh.md#声明程序配置)。
 
 ## 启动：进程存在之后，还要等待业务 Ready
 
@@ -62,7 +62,7 @@ Attach 不自动发布 Exports。Accept 中用 `session.PrepareExports()` 和 `P
 
 导出请求持有 Scope 的 Ready lease，即调用期间阻止相应服务完成释放。取消传给 handler，lease 等实际 handler 返回后才释放。server-stream 同步发送 chunk，库不建立生产队列；消费者提前停止会取消远端流。RPC 为每个 Session 的两端提供独立的出站 Pending 和入站 Handling 预算；领域层仍负责订阅、token 等领域资源限制。普通 unary 和 stream 共用 Business 额度；并发额度字段 0 表示不限，正数为上限，负数无效。应用按负载显式选择上限，有限额度超额立即拒绝。不限额度仍统计实际工作并等待停止排空。Host 与 Child 分别配置自己的 Limits。详见[即时准入](bindings.zh.md#即时准入)。
 
-协议标识为 `gordis-rpc/1`。控制消息与领域 DTO 以 JSON 经 protobuf BytesValue 传输，调用使用 gRPC unary/server-stream。transport 握手版本仍为 1。Host/child 须同步重建，不支持旧配置载荷混用。wire Go 类型与 RPC 路径是私有实现；生成 Binding 的数据格式另见 [Binding 文档](bindings.zh.md)。
+协议标识为 `gordis-rpc/1`，transport 握手版本为 1。控制消息与领域 DTO 以 JSON 经 protobuf BytesValue 传输，调用使用 gRPC unary/server-stream。修改协议时，Host 与子进程须同步重建。wire Go 类型与 RPC 路径是私有实现；生成 Binding 的数据格式另见 [Binding 文档](bindings.zh.md)。
 
 ## 停止与故障
 

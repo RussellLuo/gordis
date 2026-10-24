@@ -200,10 +200,7 @@ ordinary Go interfaces can use generated Bindings. See
 proxies. An RPC Unit has its own Host; Host services cross its boundary through
 declared Imports and fixed `Get` bindings, with no cross-process dynamic lookup.
 
-Cross-process events use [rpc/events](../rpc/events/README.md). The detached
-Scope of the removed stdio adapter is described only in the
-[historical protocol](process-protocol.md); its Lookup/Env restrictions do not
-apply to the Unit's local Host.
+Cross-process events use [rpc/events](../rpc/events/README.md).
 
 ## Boundaries
 

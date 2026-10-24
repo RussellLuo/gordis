@@ -46,21 +46,3 @@ basic 的生成与运行命令见 [Binding](bindings.zh.md) 和 [basic 示例](.
 当前固定的 Core 版本尚不包含新增 events 协作接口。独立发行前须将 go.mod 升级到包含这些接口的真实 Core 版本，再用 `GOWORK=off` 重跑完整检查；临时 workspace 验证不能代替发行依赖验证。
 
 本地验证覆盖 darwin/arm64。正式版本构建、独立发行依赖和其他目标平台仍需各自验证。更改未发布 API 或协议时，Host、child 与生成代码须同步更新。
-
-协议仍为 `gordis-rpc/1`，transport 握手版本为 1；这不表示可混用配置载荷变更前后的二进制。ConfigTarget、ConfigMode、ProcessConfigMode、ForwardConfig、NoConfig 已删除；有配置程序通过 Unit.Config/NewConfig/Configure 声明，无配置程序使用 ConfigSpec 零值。[stream 示例](../examples/stream/README.zh.md)已交付，Unit 配方仍属后续阶段。
-
-## 下游集成：Qi
-
-修改 Qi 适配层或验证 RPC 变更对 Qi 的影响时，执行以下检查。它们与本模块自身检查分开，
-从 Qi 仓库根目录运行，并启用仓库工作区：
-
-```sh
-go test -race -count=1 -timeout=180s ./builtin/tools/process/... ./builtin/bundle ./builtin/examples/tool-process/...
-go test -race ./kernel/boot/...
-```
-
-Qi 开发工作区映射相邻 Gordis checkout 的 `../gordis/rpc`；qi-build 显式接收这项源码映射。
-其工作区和集成探针使用同一固定版本的 jsonschema-go。
-
-这些检查覆盖工具语义、进程清理、默认注册与 Profile 路径准备。外部真实模型链路需要单独验证；
-RPC 不替代 Qi 的 LLM/prompt 领域适配。

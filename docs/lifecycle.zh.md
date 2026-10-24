@@ -111,5 +111,4 @@ handler 返回后完成 Host 回调服务的停止。进程已回收不能单独
 详见 [RPC 架构与生命周期](../rpc/docs/architecture.zh.md)。
 
 [RPC 事件示例](../rpc/examples/events/README.zh.md) 使用上述 Unit/Session 生命周期，
-在停止前等待 Request 派发及其嵌套 Notice 投递完成。旧 stdio adapter 与复杂应用示例已删除。
-[旧 stdio 协议](process-protocol.zh.md) 仅保留为历史说明。
+在停止前等待 Request 派发及其嵌套 Notice 投递完成。

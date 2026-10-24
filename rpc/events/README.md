@@ -75,7 +75,7 @@ Selection preserves the explicit handled flag, no-handler sentinel and business 
 
 All `*From` variants retain Host Topic/source View routing. A Child source must have been provided by the actual calling Scope and explicitly exported by that Instance in its Unit. Host independently restricts sources to ordinary boundary Exports, restores the exact ServiceSpec, and verifies the loader has provided it. Child-internal services and another owner's exports cannot be used as source addresses. Global bypasses source filtering, while Topic partitioning still applies.
 
-The adapter protocol is `2:<registry-digest>`; rebuild both ends together. The runnable [bidirectional events example](../examples/events/README.md) replaces the old process-events example. The old process packages and application-plugin, including package delivery APIs, have been removed.
+The adapter protocol is `2:<registry-digest>`; rebuild both ends together. See the [bidirectional events example](../examples/events/README.md) for runnable Host and child assembly.
 
 ## Source verification
 

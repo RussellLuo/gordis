@@ -314,6 +314,3 @@ Cross-process events use [rpc/events](../rpc/events/README.md): ordinary plugins
 keep On/Publish/Emit and Hook APIs, while assembly declares codecs and allowed
 directions. Follow the [bidirectional events example](../rpc/examples/events/README.md),
 which waits for Request dispatch and its nested Notice delivery before shutdown.
-The old stdio adapter and application-plugin example have been removed.
-Package installation, version upgrades, UI activation and manifest validation
-were retired with that application; RPC does not provide replacement package APIs.

@@ -112,5 +112,4 @@ business cleanup. See [RPC Architecture and Lifecycle](../rpc/docs/architecture.
 
 The [RPC events example](../rpc/examples/events/README.md) uses this Unit/Session
 lifecycle and waits for Request dispatch, including its nested Notice delivery,
-to complete before shutdown. The old stdio adapter and its application example
-have been removed; the [legacy protocol](process-protocol.md) remains a historical reference.
+to complete before shutdown.

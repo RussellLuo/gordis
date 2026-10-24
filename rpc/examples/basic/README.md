@@ -104,8 +104,8 @@ and `newGreeterHandler`. Authors maintain ordinary
 code and program assembly without hand-writing RPC adapters.
 
 The Binding version is `rpcgen.json/1:1`: strict positional `args` requests and
-`value` responses. This replaces EX01's handwritten wire. Program and contract versions
-remain `1` during this early refactor; rebuild both Host and plugin programs together.
+`value` responses. When changing the contract, update the generated Bindings
+and rebuild both Host and plugin programs.
 
 ## Verify
 

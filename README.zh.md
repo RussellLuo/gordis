@@ -58,48 +58,24 @@ greeter: Hello, Gordis!
 `NewHost` 注册可用的插件类型；`Env.MountReady` 挂载一个实例并等待它就绪。
 `Host.Shutdown` 在程序退出时统一清理已挂载的实例。
 
-## 核心模型
+## 项目组成
 
-- **Plugin（插件类型）**：可复用的类型，通过 `PluginSpec` 声明标识、构造方式和服务依赖。
-- **Instance（插件实例）**：插件类型的一次使用，由 `InstanceSpec` 指定独立的 ID 和配置。
-  Host 按依赖关系协调实例的启动和停止。
-- **Service（服务）**：通过 `Key[T]` 共享的类型化 Go 值。提供者在 `Provides` 中声明服务，
-  用 `scope.Provide` 发布值；消费者在 `Requires` 中声明依赖，用 `scope.Get` 获取服务。
-- **Scope（运行作用域）**：管理一次运行中的任务、请求和清理。每次激活都会创建新的插件对象和 Scope。
+| 组成 | 用途 |
+| --- | --- |
+| Core | `github.com/RussellLuo/gordis` 模块，提供插件装配、类型化服务与生命周期管理。 |
+| [Events](examples/events/README.zh.md) | Core 模块中的 `events` 子包，提供插件间的事件通信。 |
+| [RPC](rpc/README.zh.md) | 独立的 `github.com/RussellLuo/gordis/rpc` 模块，让插件在受信任的本地子进程中运行，支持类型化服务和事件通信。 |
 
-## 示例
+HTTP、UI、Agent、插件包分发和持久化属于应用层职责。
 
-从 [basic](examples/basic/README.zh.md) 开始了解类型化 Service、配置和实例挂载。完整的事件、
-隔离、所有权、就绪、动态变更与进程插件示例见[示例指南](examples/README.zh.md)。
+## 继续学习
 
-## 可选扩展
+1. [basic 示例](examples/basic/README.zh.md)：在插件之间共享类型化服务，并为各个实例配置参数。
+2. [核心概念](docs/concepts.zh.md)：理解对象、所有权、服务依赖与可见性。
+3. [插件编写](docs/plugin-authoring.zh.md)：定义契约、管理资源与装配应用。
 
-- **事件**：`github.com/RussellLuo/gordis/events` 子包提供插件之间的事件通信，
-  见[事件示例](examples/events/README.zh.md)。
-- **RPC**：[`github.com/RussellLuo/gordis/rpc` 模块](rpc/README.zh.md)让插件在受信任的
-  本地子进程中运行，需要进程执行时再引入；消费者仍通过类型化服务调用。
-  [RPC 示例](rpc/examples/README.zh.md)按 `basic → duplex → stream → events` 阅读。
-
-## 文档
-
-- [核心概念](docs/concepts.zh.md)：建议首先阅读，对象、所有权、Service 依赖与可见性的整体关系。
-- [插件编写](docs/plugin-authoring.zh.md)：契约、资源管理与应用装配。
-- [生命周期](docs/lifecycle.zh.md)：启动、排空、失败传播与诊断参考。
-- [动态实例管理](docs/dynamic.zh.md)：单实例操作、批量变更、等待与恢复。
-- [RPC 架构与生命周期](rpc/docs/architecture.zh.md)：进程启动、服务调用、回调与清理。
-- [旧 stdio 进程协议](docs/process-protocol.zh.md)：已移除实现的历史说明及迁移索引。
-
-## 能力边界
-
-Gordis 核心只管理 Go 插件图、类型化服务和生命周期。HTTP、UI、Agent、插件包分发和
-持久化属于应用层职责。
-
-普通 Service 在受信任的本地子进程中运行时使用 RPC 模块，跨进程事件使用其
-[events 桥](rpc/events/README.zh.md)。旧 `process`、`processbridge` 和
-application-plugin 示例及其包加载器已删除；独立发行依赖验证仍待完成。
-从旧 stdio 协议迁移须同步重建 Host 与子进程；RPC 不提供 manifest/包管理器。
-
-进程执行不构成不可信代码沙箱。RPC 不提供远程发现、鉴权、断线重连或强制终止 goroutine。
+按需查阅[生命周期](docs/lifecycle.zh.md)和[动态实例管理](docs/dynamic.zh.md)。
+更多隔离、所有权、就绪、动态变更及可选扩展示例见[示例指南](examples/README.zh.md)。
 
 ## 致谢
 

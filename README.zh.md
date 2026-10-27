@@ -65,6 +65,7 @@ greeter: Hello, Gordis!
 | Core | `github.com/RussellLuo/gordis` 模块，提供插件装配、类型化服务与生命周期管理。 |
 | [Events](examples/events/README.zh.md) | Core 模块中的 `events` 子包，提供插件间的事件通信。 |
 | [RPC](rpc/README.zh.md) | 独立的 `github.com/RussellLuo/gordis/rpc` 模块，让插件在受信任的本地子进程中运行，支持类型化服务和事件通信。 |
+| [Build](build/README.zh.md) | 独立的 `github.com/RussellLuo/gordis/build` 模块，提供构建 SDK 与原生 `gordis-build` 命令；[minimal](build/examples/minimal/README.zh.md) 使用原生命令，[custom](build/examples/custom/README.zh.md) 通过 SDK 保留应用注册描述。 |
 
 HTTP、UI、Agent、插件包分发和持久化属于应用层职责。
 

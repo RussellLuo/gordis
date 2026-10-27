@@ -67,6 +67,7 @@ instances when the program exits.
 | Core | The `github.com/RussellLuo/gordis` module provides plugin assembly, typed services, and lifecycle management. |
 | [Events](examples/events/README.md) | The `events` subpackage within Core adds event communication between plugins. |
 | [RPC](rpc/README.md) | The independent `github.com/RussellLuo/gordis/rpc` module runs plugins in trusted local child processes, supporting typed services and events. |
+| [Build](build/README.md) | The independent `github.com/RussellLuo/gordis/build` module provides a build SDK and native `gordis-build` command; [minimal](build/examples/minimal/README.md) uses the command, while [custom](build/examples/custom/README.md) preserves application registration descriptions through the SDK. |
 
 HTTP, UI, agents, package distribution, and persistence belong to the application.
 
